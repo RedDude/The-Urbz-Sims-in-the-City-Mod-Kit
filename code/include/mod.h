@@ -70,9 +70,17 @@ typedef struct mod_page mod_page_t;
 struct mod_page {
     void (*print)(mod_page_t *page, const char *text);   /* one line, advances down */
     int line;
-    u32 keys_down;               /* keys pressed this frame (KEY_* below), for paging */
+    u32 keys_down;               /* R / L pressed (KEY_R, KEY_L) on a page of 5 lines or fewer: use them for a
+                                    setting; the core redraws the page if its text changed (0 otherwise) */
     int scroll;                  /* lines to skip (the core changes it with R / L) */
     void *core;
+    /* Pictures (2026-11-19): up to 4 touchable pictures, each a ui_sprite_table row (an icon: Pockets items,
+       the Rep group icons 373 Streeties, 378 Nerdies, 377 Richies, 396 Artsies), placed by x, y (icon centre,
+       like the menu's own buttons; keep clear of the text lines, y 28-108, and Back at 226,120), with a short
+       label under it (about 44 px: "Streeties" fits; or 0). The page then has room for 4 text lines. */
+    void (*icon)(mod_page_t *page, int sprite, int x, int y, const char *label);
+    int tapped;                  /* the picture tapped (0 = the first icon() call), or -1 */
+    int selected;                /* set it to a picture to draw the game's selection frame on it (-1: none) */
 };
 enum { KEY_A = 1, KEY_B = 2, KEY_SELECT = 4, KEY_START = 8, KEY_RIGHT = 16, KEY_LEFT = 32,
        KEY_UP = 64, KEY_DOWN = 128, KEY_R = 256, KEY_L = 512 };

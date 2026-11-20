@@ -1,0 +1,21 @@
+{
+ "relocs": [
+  272,
+  576,
+  784
+ ],
+ "symbols": {
+  "crate_move": 8,
+  "crate_offer_move": 0,
+  "crate_place_stub": 788,
+  "crate_put_in": 592,
+  "crate_spawn_check": 292,
+  "mod_on_boot": 820,
+  "moving_crate": 852
+ },
+ "bss": 0,
+ "sources": {
+  "main.c": "1affcfdc02373a4790766ff322f5d1698c220fbe",
+  "hooks.txt": "b9508850cbf5dbdceeb5b91f3dc730dd4af742c4"
+ }
+}

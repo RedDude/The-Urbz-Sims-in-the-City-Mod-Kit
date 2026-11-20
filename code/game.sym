@@ -89,6 +89,8 @@ npc_busy_list      = 0x02142270   # 10 x {s16 active, u8 char_id, ...} (6 bytes)
 spawn_npc          = 0x0206499C   # entity *spawn_npc(int char_id, int facing, int x<<16, int y<<16)
 spawn_from_record  = 0x02064ED8   # area placement record {u16 type 7, u16, s16 x, s16 y, u8 char, u8 facing}
 relationships      = 0x02141154   # 36 x 4 bytes: [0] s8 relationship with person c (-128 = never met)
+rel_flags          = 0x02141153   # u8 per person, 4 apart (just before relationships): 4 = friend (set when the relationship reaches 50, cleared below 50; count at 0x02141152), 2/1/8 other thresholds (add_relationship 0x0207B074)
+bead_given         = 0x02141156   # u8 per person, 4 apart (relationships + 2): 1 = they gave you their Beads (set at 0x0208C268 with the "@2 gave you some Beads!" notice, 0x02141C70 queue flag 0x100); add_relationship at 75 reads it
 
 # --- entities (people and objects on screen): pool of 0x148-byte structs from 0x0215E344.
 #     +0x08 u16 type (0 player, 7 person), +0x0A u16 character id, +0x0C flags,
@@ -188,7 +190,7 @@ font_table         = 0x020C5CEC   # 8 x {u32 font game id, u32 colour base}
 font_descriptors   = 0x02140D60   # 8 x 0x28 resident font descriptors
 
 # --- bottom-screen menus (Urb Info / Options / globe ...; docs/systems.md "Menus")
-menu_table_ptrs    = 0x020F5654   # menu *[5]: 0 globe?, 1 catalog pages, 2 Options (0x020F56EC), 3 ?, 4 Urb Info... (index = menu_ui+8)
+menu_table_ptrs    = 0x020F5654   # menu *[5]: 0 Urb Info (0x020F5744, the city's default), 1 catalog pages, 2 Options (0x020F56EC), 3 ?, 4 ? (index = menu_ui+8; proven 2026-11-20)
 options_menu       = 0x020F56EC   # header {u32 gfx, u32 layout, 0, 0, u32 pal16, u32 pal256, u16 count, u16} + count x 20-byte buttons
 menu_ptr_lit_1     = 0x0206FD54   # literal pool words holding &menu_table_ptrs (the only references)
 menu_ptr_lit_2     = 0x020701B4
@@ -200,6 +202,7 @@ menu_hit_call      = 0x0206FDAC   # the only BL menu_hit_test
 menu_redraw        = 0x0207026C   # rebuild the open menu's icons and text
 menu_draw_text     = 0x02070038   # title + one label per button
 menu_label_call    = 0x0207016C   # BL text_get(button label id) in menu_draw_text
+menu_dispatch_call = 0x0206FDE4   # the touch handler's BL menu_dispatch (after str action -> menu_ui+0xC); it returns after unless the action is 0x22
 menu_dispatch      = 0x02070494   # run the chosen action (6 settings, 7 save, 0x28 quit, ...)
 text_get           = 0x020A6D28   # const char *text_get(int string_id)
 text_draw          = 0x020340F8   # (int tiles, int x, int y, const char *s, int align: 1 centre x, 2 right, 4 centre y)
@@ -308,3 +311,97 @@ pockets_list       = 0x02141338   # item list 23: {u8 count, u8 capacity, u16, s
 crit_table_lit     = 0x0202AC1C   # a literal holding critter_table (moved by urbz_pets.py; code/pets finds the pet list before it)
 can_save           = 0x0206F8C4   # (): 1 if Save Game / Quit may open: player state 0x10 (or game phase != 3), action != 5, top screen state 1, ...; else menu_hit_test buzzes
 dialog_arg         = 0x02033B78   # (const char *text, int slot): fills @1 (slot 0), @2, @3 of the next box (64 bytes each at 0x02140EA0 + screen*0x100)
+social_options     = 0x02147508   # u8[4] the chat's choices: code < 0x4A = string 3732+code (0x43 Flirt, 0x44 Hug, 0x45 Kiss), 0x4A FRIENDLY STUFF, 0x54 empty (docs/systems.md "Chats")
+social_draw_options = 0x0208DC1C  # draws the 4 choices
+social_pick_options = 0x0208F230  # draws choices 1-3 at random; Flirt/Kiss re-drawn when npc_sex == player sex (0x0208F3BC)
+npc_sex            = 0x02066A28   # u8 (char_id): person record +0x27, 0 male 1 female
+phone_activity     = 0x020A5168   # the home phone's object activity (state in use record +6)
+phone_open         = 0x020A4D94   # builds phone_list (known people by name), opens Call Services / Call Friend / Invite (at home)
+people_known       = 0x0207AB3C   # (social_book, s8 *out, max, min, max_rel [stack]) -> count: ids 31-66 met, min <= relationship <= max_rel (phone_open: 36, -100, 100)
+social_book        = 0x0214114E   # what people_known reads (relationships = +6)
+phone_names_page   = 0x020A4B7C   # 4 names from phone_page
+phone_call         = 0x020A495C   # (list index, use record): where they'll be, +1 relationship, face, dialog_open
+phone_invite       = 0x020A477C   # (list index, use record): chance rel/2+10, npc_visit_home, dialog_open
+phone_list         = 0x02148F48   # s8[36] person ids (31-66; name = string 481 + id), -1 = end
+phone_count        = 0x02148F44   # u8
+phone_page         = 0x02148F40   # u8 first entry shown
+phone_services_box = 0x020A4CFC   # (): the Call Services question box (top screen, set_state_here(2)); phone_activity state 0x1B reads dialog_result 0-2
+service_order      = 0x020A4F74   # (service 0/2/3, use record): price check (game_state+0x81C row x 0x18 + 0x020C1F40); too dear: message, phone_service = 4, record +6 = 0x1E; else the answer box, record +6 = 0x1F
+service_call       = 0x020647D0   # (service 0/2/3): sends the service (phone_activity state 0x1E, on hanging up)
+phone_service      = 0x02148F3C   # u8: the Call Services choice (0-2), 4 = none
+phone_anims        = 0x0211BDF4   # u8[3 rows][4 kinds][3]: pick up, hang up, end {facing, object look (6 = none), player anim}; kind = phone node+0x3B (0 pay phone 212: 0x52 / 0x53; 1-3 home 205-207: 0x51 / 4)
+object_set_look    = 0x02067D04   # (object entity, look): one of the object's 7 looks (object_anims), e.g. the pay phone's handset off (1)
+face_image         = 0x0204E5A4   # (c): image id of the person's face (ui_sprite_new(0xF1, img, 0xF, 0))
+ui_slot_pos        = 0x020CA88C   # s16 x, y, x2, y2 per UI sprite slot (ui_sprite_new's first argument)
+ui_sprite_update   = 0x0204E7B8   # UI sprites' update (+0x4C): puts them at their slot's place each frame
+entity_set_pos     = 0x02001DAC   # (e, x << 16, y << 16)
+entity_set_frame   = 0x02001DC0   # (e, frame): reloads only when the frame differs from +0x97
+npc_visit_home     = 0x02064768   # (c): the person comes to the player's home (visit zone 0, 3,600 ticks)
+# --- object touch screens: the mixer and oven screen (docs/systems.md "Object touch screens"; read from the code)
+screen_block       = 0x027C0000   # per screen x 0x8C: +0x74 mode, +0x78 sub-screen to draw first, +0x84 sub-screen (update), +0xD4 dialog_result
+set_state_here     = 0x0204E028   # (state, mode, param): set_state for the screen being run
+set_state_other    = 0x0204DEFC   # (state, mode, param): set_state for the other screen
+obj_screen_enter   = 0x02028888   # state 31 (bottom) enter: background + title from obj_screen_modes[mode], buttons, ingredients
+obj_screen_update  = 0x02028814   # state 31 update: by sub-screen (+0x84) 0 -> 1, 1 touches, 3, 4
+obj_screen_buttons = 0x0202859C   # state 31 enter: mode's sprites, the round button (hidden) and the close button (slot 0x10)
+obj_screen_draw    = 0x02027D90   # (part): 0xD the title, 0xE the 8 ingredients, 0-10 the slots
+obj_screen_touch   = 0x02027290   # sub-screen 1: ingredient touches, close button -> set_state(0x22) + other screen set_state(1, 2, area)
+obj_screen_modes   = 0x020C2BF4   # 16 bytes per mode {bg gfx 3, bg gfx 2, ?, title string}: 0 Basic Mixer, 1 Deluxe, 2 Oven, 3-7 unused copies of 0, 8-11 wood carving
+obj_help_enter     = 0x02024D94   # state 37 (top) enter: title (row +0xC) and help text (163 carving, 164 mixer, 165 oven)
+obj_buttons        = 0x02142014   # u8 *[20] per screen (x 0x50): the touch screen's buttons; 0x10 = close
+map_fill           = 0x020180FC   # (layer, x, y, w, h, value) in tiles: fills part of a screen's tile map (the mixer clears its panel with (1, 1, 12, 16, 7, 0))
+text_wrap          = 0x02034328   # (tiles, x, y, width, s, align): text wrapped to width px (the touch screens' panel, the help text)
+where_is           = 0x0206592C   # int (person id, u32 *area, u8 *hour, u8 *day): where the timetable has them now; area 0x52 = out of town
+button_new         = 0x0206F6F4   # u8 *(kind, palette, 0, shown, x << 16, y << 16): a round button, frame kind * 3, placed by its centre
+button_hit         = 0x0206F5E8   # int (slot): touched this frame inside 30 x 30 around obj_buttons[slot]
+return_spot        = 0x02141C2C   # {player *, ..., +7 u8 facing, +8 s16 x, +0xA s16 y}: where the player stands when the city comes back with area_entry_point = 0xFF (the mixer sets both)
+# --- the player's walk style (2026-11-19, mods/walk-style)
+walk_pick          = 0x02037860   # int (anim): the player's animation for anim; 10 (walk) becomes the Rep group's walk when sim_flags[input_state+4] & 0x20 and !player_walk_busy(0): group 0 Streeties 0x0E, 1 Nerdies 0x0C, 2 Richies 0x0D, 3 Artsies 0x0B, 4 (none) 0x0A
+walk_pick_call     = 0x02037930   # in player_play_anim (0x02037908): bl walk_pick
+walk_pick_call2    = 0x020095A4   # in FUN_02009484 (the player's set-up): bl walk_pick(10), then entity_play_anim
+player_walk_busy   = 0x020377DC   # int (anim): 1 if sim_flags & 8, 2 if (0x02141B20+0xFC) & 0x1000 (0 for anim 0xFB), else 0
+rep_groups         = 0x02141240   # s8 rep[4] (+0..3, per group), +0x14 s32 the player's group (0-3, 4 = none); group_of(char) 0x0207CCC0 (table 0x020F6F34, 4 x 8 ids)
+# --- power-on: logos, title, Load-an-Urb (2026-11-20, mods/quick-start; docs/systems.md "Power-on: logos to the city")
+state_table        = 0x020CD8B4   # 43 rows {enter, update, exit} (set_state's states); row 3 = the logos, 5 = title, 7 = Load-an-Urb, 1 = city
+state_logos_update = 0x02045640   # state 3 update (runs on screen 0 only): logos; stage 0xD puts 0x21 on screen 0 and the title (5) on screen 1
+cur_screen         = 0x027C0004   # u32: the screen whose state is running (0 = top: the city; 1 = bottom: its menus); set_state_other flips it around set_state_here
+screen_blocks      = 0x027C0070   # per screen (x 0x8C): +0 state, +4 mode, +8 param; +0x2C state | 0x80 (pending), +0x30 mode, +0x34 param; phase bytes at 0x027C006C + screen (frame loop in ITCM 0x01FF89F0)
+screen_fade        = 0x020807B0   # (mask, kind): the kind of the next fade (per screen, 0x02147190); the logos start with 1
+screen_level       = 0x0208093C   # (mask, level): sets the fade level now (0x0214719C per screen; 0 = shown, 16 = dark, as the logos leave it)
+fade_busy          = 0x02080654   # int (): nonzero while either screen is fading (the logos wait for 0 between steps)
+game_reset         = 0x02035D5C   # (): clears the game globals and allocates the placed-objects buffer (game_state+0x664 via 0x0203D8F4); the title top (state 0x21 enter, 0x020AB840) calls it; a load before it writes through a 0 pointer
+sound_card_pause   = 0x02098420   # (): stops the sound stream before a card read (the load screen's save_read_slot)
+sound_card_resume  = 0x02098388   # (): starts it again
+save_slot_info     = 0x02141F80   # u8 *: +4 + slot = 1 if the slot holds a game (Load-an-Urb checks it); still 0 at the logos (filled later)
+save_card_busy     = 0x02141F7C   # u8: 1 while the load screen reads a slot
+load_transition    = 0x027C0064   # u8: the load screen sets 1 before the city's set_state (a transition kind, read at 0x0204DC44)
+load_confirm       = 0x0204781C   # Load-an-Urb (state 7, screen 1) confirm: save_ctx+0x80 = slot, read, check, set_state_other(1, 5, 0), set_state_here(0x22)
+# --- chat replies (2026-11-20, mods/friendly-topics; docs/systems.md "Chats")
+social_pick_call   = 0x0208E3D8   # in FUN_0208E2F4 (a chat opens): bl social_pick_options
+social_pick_call2  = 0x0208E064   # in FUN_0208E05C (FRIENDLY STUFF deals new choices): bl social_pick_options
+social_replies     = 0x02114698   # per person (id 31-66) x 0x274: 8-byte entry per topic {u32 text, s8 relationship change, u8 anim}; entry = code * 8, but 0x15 -> 0xB0, 0x16 -> 0xA8, 0x43 -> 0x230, 0x46 -> 0x238 (social_reply_entry 0x0208ABF4)
+social_replies_alt = 0x02114014   # used instead for person 31 when game_state+0x959 is set
+social_reply_entry = 0x0208ABF4   # (person, code): the topic's reply entry; social_reply 0x0208D888 adds entry+4 to the relationship (social_add_rel 0x0208FFF4)
+social_add_rel     = 0x0208FFF4   # (change): change + rep_bonus(rep_groups, rep_group_of(partner)) -> add_relationship; > 0 happy, < 0 unhappy
+rep_group_of       = 0x0207CCC0   # int (person id): Rep group 0-3, 4 = none
+rep_bonus          = 0x0207CC3C   # int (rep_groups, group): -2..+2 from the player's standing with that group (0 for group 4)
+# --- the moving crate (2026-11-20, mods/moving-crate, proof `moving-crate`; docs/systems.md "The moving crate")
+crate_list_ptr     = 0x02141278   # game_state+0x158: -> item list 21 (the crate, 50 slots; header 0x02141328)
+objects_mgr        = 0x02141258   # game_state+0x138: placed-objects manager (+0x20 -> crate list, +0x664 store)
+pack_home          = 0x0203C774   # (objects_mgr, area): placed things of an area -> crate list, then clear the area
+store_remove       = 0x0203C82C   # (objects_mgr, area, index in area): drop one placed-object record (the burglar uses it)
+list_has_room      = 0x0203CEB0   # bool (list *): count < capacity
+list_is_full       = 0x0203CECC   # bool (list *): count >= capacity
+list_is_empty      = 0x0203CEE8   # bool (list *)
+list_remove        = 0x0203CFB0   # (list *, index, 1): take a slot out, the rest move up
+list_find          = 0x0203D08C   # int (list *, object): slot index or -1
+crate_here         = 0x02046948   # u8 (): in the home lot's main area and game_state+0x111 set (asked before the crate's area record is made)
+crate_spawn_call   = 0x020684F4   # BL crate_here in the area-record object spawn (0x020684A4), only for object 230
+crate_list_acts    = 0x020624D8   # class 230 +4: Open the Crate (0x0F); Return the Crate (0x10) only when the crate is empty
+crate_empty_call   = 0x020624F0   # BL list_is_empty(crate list) in crate_list_acts
+crate_dispatch     = 0x020623DC   # class 230 +0xC: 0x0F -> crate_open 0x020622E4 (shop screen, list 21), 0x10 -> crate_return 0x020622A4
+crate_return_call  = 0x02062418   # BL crate_return in crate_dispatch
+shop_sell          = 0x0209CC50   # int (): the shop screen's sell; lists 21/22: no price, the item goes into list 21
+shop_input         = 0x0209BA50   # shop screen (state 17) input; a double-tap on a Pockets item skips lists 21/22 (0x0209BB0C/14)
+shop_sell_call     = 0x0209BB18   # BL shop_sell in shop_input
+pockets_use        = 0x0203DF08   # Pockets double-tap: use item (0x0203FA80) or place check -> carry mode (state 0x16)

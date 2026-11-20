@@ -1,0 +1,46 @@
+{
+ "relocs": [
+  672,
+  676,
+  680,
+  804,
+  860,
+  1384,
+  1388,
+  1392,
+  1612,
+  1616,
+  1852,
+  1856,
+  1860,
+  1864,
+  1868,
+  1872,
+  1876,
+  2024,
+  2028,
+  2032,
+  2036
+ ],
+ "symbols": {
+  "choice_names": 2024,
+  "mod_on_boot": 0,
+  "mod_on_enable": 692,
+  "mod_on_load": 808,
+  "mod_on_page": 1620,
+  "mod_on_save": 728,
+  "pick_slot": 1528,
+  "quick_start": 2052,
+  "quick_start_update": 864,
+  "quick_start_update.calls": 2076,
+  "quick_start_update.want": 2072,
+  "scan": 4,
+  "slot_buf": 2080,
+  "to_title": 1416
+ },
+ "bss": 4068,
+ "sources": {
+  "main.c": "cdb8f0ddb5218712c81f0c8a21e900427e444496",
+  "hooks.txt": "8d2586c1d181a46fba2c229a7d41e6807db16761"
+ }
+}

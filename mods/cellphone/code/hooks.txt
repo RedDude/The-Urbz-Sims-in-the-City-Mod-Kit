@@ -1,0 +1,5 @@
+# Cellphone: a 5th Urb Info button (the menu itself is swapped in by mod_on_boot / mod_on_enable;
+# docs/systems.md "Bottom-screen menus"). The game stores the touched button's action in menu_ui+0xC and
+# calls menu_dispatch, which closes the menu for actions it doesn't know. Ours sees the call first: for the
+# Cellphone it never closes the menu: Urb Info stays on the bottom screen, as with a phone object.
+call menu_dispatch_call cell_dispatch

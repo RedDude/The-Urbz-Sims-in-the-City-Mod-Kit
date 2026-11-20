@@ -1,0 +1,10 @@
+{
+  "name": "cellphone",
+  "title": "Cellphone",
+  "version": "0.2",
+  "author": "Urbz DX",
+  "description": "A Cellphone button in the middle of Urb Info: use the phone from anywhere, with the same choices as a phone (Call Services, Call Friend, Invite at home). Needs the Phone mod 0.6.",
+  "urb_info_icon": "icon.png",
+  "toggle": true,
+  "default": true
+}

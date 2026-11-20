@@ -1,0 +1,14 @@
+{
+ "relocs": [
+  668
+ ],
+ "symbols": {
+  "friendly_pick": 0,
+  "friendly_topics": 700
+ },
+ "bss": 0,
+ "sources": {
+  "main.c": "343d03156fb9b4fd59e295f1a1373e97961de467",
+  "hooks.txt": "2f6af6fbb8458e4d3304028545ed123b024ce7d7"
+ }
+}

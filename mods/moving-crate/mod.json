@@ -1,0 +1,8 @@
+{
+  "name": "moving-crate",
+  "title": "Moving Crate",
+  "version": "1.0",
+  "author": "Urbz DX",
+  "description": "The moving crate stays in your home for good: put things from Pockets into it, take them out, and move it with Move the Crate (it goes into Pockets; put it down like any furniture).",
+  "toggle": false
+}

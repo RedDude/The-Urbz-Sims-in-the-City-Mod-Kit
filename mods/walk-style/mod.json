@@ -1,0 +1,10 @@
+{
+  "name": "walk-style",
+  "title": "Walk Style",
+  "version": "1.0",
+  "author": "Urbz DX",
+  "description": "Choose how your Sim walks: the normal walk or any Rep group's (Streetie, Nerdie, Richie, Artsie). Pick it in the game: Options > Mods > Walk Style, then tap a group's picture (or R / L). \"Game's own\" keeps the original game's choice.",
+  "toggle": true,
+  "default": true,
+  "save_bytes": 1
+}

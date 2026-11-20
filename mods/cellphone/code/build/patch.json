@@ -1,0 +1,39 @@
+{
+ "relocs": [
+  120,
+  124,
+  128,
+  436,
+  440,
+  576,
+  580,
+  584,
+  712,
+  716,
+  720,
+  724,
+  880,
+  892,
+  1036,
+  1040,
+  1052
+ ],
+ "symbols": {
+  "api": 1112,
+  "cell_dispatch": 728,
+  "find_api": 132,
+  "mod_on_boot": 0,
+  "mod_on_disable": 588,
+  "mod_on_enable": 460,
+  "mod_on_tick": 900,
+  "pending": 1108,
+  "phone_row": 1104,
+  "urb4": 1116,
+  "urb5": 1120
+ },
+ "bss": 200,
+ "sources": {
+  "main.c": "368bd04735920a7d60c70e1ebb011a339dc363c3",
+  "hooks.txt": "4f8fb892dea5ea85ad1acffedd65fe7eaa2691cc"
+ }
+}

@@ -334,9 +334,13 @@ def build(proj, out_path, mod_dirs=(), quiet=False):
         # Extra seats in places (a mod's seats.json, urbz_seats.py): chairs only drawn into a background.
         from urbz_seats import seats_mod, SeatsError
         cdir, seats_line = seats_mod(proj, mod_dirs, os.path.join(gen, 'new-seats'))
-    except (PetsError, ObjectsError, PosesError, SeatsError) as e:
+        # A mod's own Urb Info button picture (mod.json "urb_info_icon", urbz_menuicons.py).
+        from urbz_menuicons import menu_icons_mod, MenuIconError
+        idir, icons_line = menu_icons_mod(proj, mod_dirs, os.path.join(gen, 'new-menu-icons'))
+    except (PetsError, ObjectsError, PosesError, SeatsError, MenuIconError) as e:
         raise BuildError(str(e))
-    for dirs, line in ((pdirs, pets_line), (odir, objects_line), (sdir, poses_line), (cdir, seats_line)):
+    for dirs, line in ((pdirs, pets_line), (odir, objects_line), (sdir, poses_line), (cdir, seats_line),
+                       (idir, icons_line)):
         if dirs:
             mod_dirs = list(mod_dirs) + dirs
             if not quiet:

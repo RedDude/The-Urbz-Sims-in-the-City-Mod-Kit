@@ -1,0 +1,18 @@
+# Phone (docs/systems.md "The telephone" and "Object touch screens").
+#
+# phone_activity (0x020A5168) sets phone_page (0x02148F40) to 0 when you pick Call Friend (state 0x1C)
+# or Invite a Friend Over (state 0x1D), just before the list of names. The touch screen starts at the
+# first page itself; these two stay skipped.
+u32 0x020A5478 0xE1A00000    # was E5C01000 strb r1,[r0] (Call Friend: page = 0) -> nop
+u32 0x020A5494 0xE1A00000    # was E5C01000 strb r1,[r0] (Invite: page = 0) -> nop
+
+# The touch screen, like the mixer's (state 31 bottom + 37 top, mode 7).
+wrap phone_activity phone_seen          # keep the phone use's record
+call 0x020A547C phone_faces_open        # Call Friend: was BL phone_names_list (the box with 4 names)
+call 0x020A5498 phone_faces_open        # Invite a Friend Over: the same
+call 0x020289AC phone_screen_buttons    # state 31 enter: BL obj_screen_buttons, then the people
+call 0x02028A60 phone_screen_title      # state 31 enter: BL obj_screen_draw(0xD) (the title)
+call 0x02028AA4 phone_screen_part       # state 31 enter: BL obj_screen_draw(first part) (an item in the panel)
+call 0x0202885C phone_screen_touch      # state 31 update, sub-screen 1: BL obj_screen_touch
+call 0x02024EB4 phone_help_title        # state 37 enter: BL text_get (the title)
+call 0x02024EEC phone_help_text         # state 37 enter: BL text_get (the help text)

@@ -1,0 +1,3 @@
+# Walk Style: the game's two calls to walk_pick (the player's walk animation) go to ours.
+call walk_pick_call  walk_style_pick     # player_play_anim
+call walk_pick_call2 walk_style_pick     # the player's set-up (walk_pick(10), then play it)

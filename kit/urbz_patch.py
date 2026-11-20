@@ -7,7 +7,8 @@
   python urbz.py patch syms             list named game addresses (code/game.sym)
 
 Needs LLVM (clang + ld.lld) only to *compile*. Built mods carry their compiled
-blob, so building the ROM never needs a compiler. On Windows: winget install LLVM.
+blob, so building the ROM never needs a compiler. On Windows: winget install LLVM, or MSYS2
+(pacman -S mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-lld; found in C:/msys64/ucrt64/bin).
 
 How it works: the code is linked twice, at address 0 and at 0x10000000. Words
 that differ by exactly 0x10000000 are pointers into the blob; the builder adds
@@ -66,6 +67,9 @@ def find_tool(name):
     if os.name == 'nt':
         cands += [os.path.join(os.environ.get(v, ''), 'LLVM', 'bin', exe)
                   for v in ('ProgramFiles', 'ProgramFiles(x86)')]
+        # MSYS2 (pacman -S mingw-w64-ucrt-x86_64-clang / -clang-x86_64-clang ...-lld), no admin needed
+        cands += [os.path.join(os.environ.get('MSYS2_ROOT', r'C:\msys64'), env, 'bin', exe)
+                  for env in ('clang64', 'ucrt64', 'mingw64')]
     cands += sorted(glob.glob('/usr/lib/llvm-*/bin/' + name), reverse=True)
     cands += sorted(glob.glob('/opt/homebrew/opt/llvm/bin/' + name))
     for c in cands:
@@ -107,7 +111,8 @@ def hook_functions(cdir):
 
 def build(mod):
     """mod: a mod name under mods/, or a path to a mod folder."""
-    mdir = mod if os.path.isdir(mod) and os.path.sep in mod else os.path.join(KIT, 'mods', mod)
+    is_path = os.path.sep in mod or (os.path.altsep and os.path.altsep in mod)   # Windows: / too
+    mdir = mod if os.path.isdir(mod) and is_path else os.path.join(KIT, 'mods', mod)
     cdir = os.path.join(mdir, 'code')
     if not os.path.isdir(cdir) and os.path.exists(os.path.join(mdir, 'hooks.txt')):
         cdir = mdir                      # a code folder itself (the mod core: code/core)
@@ -138,7 +143,8 @@ def build(mod):
             ld = os.path.join(tmp, 'l%x.ld' % base)
             open(ld, 'w').write(LDSCRIPT % hex(base))
             elf = os.path.join(tmp, 'p%x.elf' % base)
-            run([lld, '-T', ld, '--gc-sections', '-o', elf] +
+            # -m armelf: MSYS2's ld.lld otherwise starts in its Windows (MinGW) mode
+            run([lld, '-m', 'armelf', '-T', ld, '--gc-sections', '-o', elf] +
                 [a for r in keep for a in ('-u', r)] + objs)
             b = os.path.join(tmp, 'p%x.bin' % base)
             run([objcopy, '-O', 'binary', '--only-section=.text', '--only-section=.rodata',

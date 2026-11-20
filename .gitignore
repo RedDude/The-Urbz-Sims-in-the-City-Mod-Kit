@@ -32,6 +32,16 @@ mods/*
 !mods/more-furniture/
 !mods/max-needs/
 !mods/bug-fixes/
+!mods/phone/
+!mods/cellphone/
+!mods/any-romance/
+!mods/friendly-topics/
+!mods/moving-crate/
+!mods/quick-start/
+!mods/walk-style/
+# The phone picture (not ours: made into phone_art.inc locally, never committed)
+mods/phone/phone-ts2.png
+mods/phone/code/phone_art.inc
 mods/npc-life/sim/orig_tables.h
 tests/mods/*/code/build/
 verify/melonds/

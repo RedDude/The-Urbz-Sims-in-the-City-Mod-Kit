@@ -1,0 +1,10 @@
+{
+  "name": "quick-start",
+  "title": "Quick Start",
+  "version": "1.0",
+  "author": "Urbz DX",
+  "description": "Skips the logos and the title menu at power-on and goes straight into your saved game. Choose which in the game: Options > Mods > Quick Start, then R / L (Last saved, Slot 1, Slot 2, or Title screen). Hold SELECT while the game starts to get the title screen once.",
+  "toggle": true,
+  "default": true,
+  "save_bytes": 4
+}

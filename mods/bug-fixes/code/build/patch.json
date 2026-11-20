@@ -1,14 +1,14 @@
 {
  "relocs": [
   32,
-  432,
-  440,
-  444
+  436,
+  444,
+  448
  ],
  "symbols": {
-  "bug_fixes": 456,
-  "leave_seen": 664,
-  "leave_since": 468,
+  "bug_fixes": 460,
+  "leave_seen": 668,
+  "leave_since": 472,
   "mod_on_area_enter": 0,
   "mod_on_tick": 36
  },

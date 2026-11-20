@@ -116,7 +116,7 @@ def test_switch_wrap_trampoline():
     assert names == ['push', 'mrs', 'push', 'ldr', 'ldrb', 'cmp', 'ldrne', 'blxne', 'pop', 'msr',
                      'pop', 'push', 'ldr'], names
     loads = pc_loads(code, t)
-    assert loads[0] == ('ldr', 'r0', on) and loads[1] == ('ldrne', 'ip', func), loads
+    assert loads[0] == ('ldr', 'ip', on) and loads[1] == ('ldrne', 'ip', func), loads   # r0-r3 untouched for func
     assert loads[2] == ('ldr', 'pc', site + 4), loads
 
 

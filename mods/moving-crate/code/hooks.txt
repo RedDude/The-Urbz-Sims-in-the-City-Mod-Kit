@@ -1,0 +1,15 @@
+# Moving Crate (docs/systems.md "The moving crate").
+#
+# The crate's menu (class 230 list, 0x020624D8): Open the Crate always, and "Return the Crate" (renamed
+# "Move the Crate" in text/strings.tsv) always, not only when the crate is empty.
+call 0x020624F0 crate_offer_move        # was BL list_is_empty(crate list)
+call 0x02062418 crate_move              # action 0x10: was BL crate_return (clears the flag, deletes the crate)
+# The area's object spawn asks crate_here (0x02046948) before making the crate from its area record.
+call 0x020684F4 crate_spawn_check
+# The crate screen (state 17, list 21): a double-tap on a Pockets item puts it in the crate. The game skips
+# lists 21/22 here although shop_sell (0x0209CC50) already moves the item into list 21 for them.
+u32 0x0209BB0C 0xE1A00000               # was beq (list 21: skip) -> nop
+call 0x0209BB18 crate_put_in            # BL shop_sell
+# The place check refuses objects 224+ except the Chicken (225); the crate (230) may go down too.
+u32 0x0203F804 0xE51FF004               # ldr pc, [pc, #-4] (was cmp r6, #0xE0)
+u32 0x0203F808 @crate_place_stub

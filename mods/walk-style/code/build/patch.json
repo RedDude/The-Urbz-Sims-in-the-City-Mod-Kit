@@ -1,0 +1,30 @@
+{
+ "relocs": [
+  112,
+  116,
+  432,
+  440,
+  444,
+  484,
+  532,
+  596,
+  604,
+  612,
+  620,
+  628,
+  636
+ ],
+ "symbols": {
+  "mod_on_load": 488,
+  "mod_on_page": 120,
+  "mod_on_save": 452,
+  "styles": 592,
+  "walk_style": 640,
+  "walk_style_pick": 0
+ },
+ "bss": 0,
+ "sources": {
+  "main.c": "b7db435399a3b74b9fb74f1f57bf7c078f354eb5",
+  "hooks.txt": "4571be8e1a2ad9e6c39f7555c6e5af35cd5df196"
+ }
+}

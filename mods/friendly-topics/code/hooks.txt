@@ -1,0 +1,4 @@
+# Friendly Topics: both calls to social_pick_options (the chat's three random choices) go to ours, which runs
+# the game's pick and then makes sure one choice is a topic the person likes (docs/systems.md "Chats").
+call social_pick_call  friendly_pick     # a chat opens
+call social_pick_call2 friendly_pick     # FRIENDLY STUFF deals new choices

@@ -1,0 +1,11 @@
+# Any Romance: Flirt and Kiss with anyone, whatever the sex (docs/systems.md "Chats").
+#
+# social_pick_options (0x0208F230) draws the chat's three choices at random. When it draws Flirt (0x43)
+# or Kiss (0x45) it reads the person's sex (npc_sex, record +0x27) and the player's (player_look+0):
+# if they are the same, the choice is thrown away and drawn again. People 36, 40, 43, 44, 53, 69 and 70
+# never get them (kept).
+u32 0x0208F3BC 0xE1A00000    # was 059D900C ldreq sb,[sp,#0xc] ("same sex: draw again") -> nop
+
+# add_relationship (0x0207B074): with save flag 10 set, a gain with someone of the other sex earns
+# one point more. Make it count for everyone.
+u32 0x0207B0E0 0xE35100FF    # was E1510000 cmp r1,r0 -> cmp r1,#0xff (never equal: always the bonus)

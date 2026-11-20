@@ -1,0 +1,9 @@
+{
+  "name": "friendly-topics",
+  "title": "Friendly Topics",
+  "version": "1.0",
+  "author": "Urbz DX",
+  "description": "Every chat shows at least one topic the person likes, so you don't have to keep tapping FRIENDLY STUFF to find one. The other choices stay random, as in the original game.",
+  "toggle": true,
+  "default": true
+}

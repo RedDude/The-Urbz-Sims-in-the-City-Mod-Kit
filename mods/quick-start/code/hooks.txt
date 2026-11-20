@@ -1,0 +1,3 @@
+# Quick Start: state 3 (the logos at power-on) runs our update instead of the game's.
+# state_table rows are {enter, update, exit}: row 3's update is at +3*12+4.
+u32 state_table+0x28 @quick_start_update

@@ -411,13 +411,14 @@ def _switch_call_stub(at, chain, orig):
 
 
 def _switch_wrap_trampoline(t, site, orig, func, on):
-    """Like _wrap_trampoline, but only calls func while the mod's switch byte is on."""
+    """Like _wrap_trampoline, but only calls func while the mod's switch byte is on. The test uses r12 so
+    func still gets the caller's r0-r3 (it once used r0: func got 1 as its first argument)."""
     words = [0xE92D500F,        # stmfd sp!, {r0-r3, r12, lr}
              0xE10FC000,        # mrs   r12, cpsr
              0xE92D5000,        # stmfd sp!, {r12, lr}
-             0xE59F0024,        # ldr   r0, [pc, #36]   -> on
-             0xE5D00000,        # ldrb  r0, [r0]
-             0xE3500000,        # cmp   r0, #0
+             0xE59FC024,        # ldr   r12, [pc, #36]  -> on
+             0xE5DCC000,        # ldrb  r12, [r12]
+             0xE35C0000,        # cmp   r12, #0
              0x159FC01C,        # ldrne r12, [pc, #28]  -> func
              0x112FFF3C,        # blxne r12
              0xE8BD5000,        # ldmfd sp!, {r12, lr}
