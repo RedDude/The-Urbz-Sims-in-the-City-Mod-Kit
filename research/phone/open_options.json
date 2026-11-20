@@ -1,0 +1,1 @@
+[["wait",30],["touch",128,180,8],["wait",60],["shot","options"],["wait",30],["shot","options2"],["wait",120],["shot","options3"]]
