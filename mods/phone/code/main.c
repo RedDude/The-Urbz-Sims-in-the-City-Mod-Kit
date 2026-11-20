@@ -1,12 +1,13 @@
-/* Phone: Call Friend and Invite a Friend Over open a touch screen like the Mixer's, with the faces of the
-   people you know in its 8 squares (docs/systems.md "Object touch screens" and "The telephone").
+/* Phone: Call Friend and Invite a Friend Over open a touch screen that looks like Pockets, with the faces of
+   the people you know in its 12 squares (docs/systems.md "Object touch screens" and "The telephone").
 
    The game's object touch screen is state 31 on the bottom screen and state 37 (the help text) on the top;
    its mode picks the object (0/1 mixers, 2 oven; 3-7 are unused copies of the mixer's row). The phone uses
-   mode 7, so the game draws the mixer's screen and its close button. This code adds, the way the mixer
-   does for ingredients: a face in each square (UI sprite slots 0xB0-0xB7, kept in button slots 0-7),
-   the selection frame on the face touched, its name and the Rep Group's relationship bar in the panel, and the round
-   button (the mixer's "mix", button slot 0xF) to make the call. Like the mixer, the phone use ends while
+   mode 7, so the game runs the mixer's screen and its close button. This code swaps its backgrounds for
+   Pockets' (the panel, the frame and the text colours) and lays the squares out 6 x 2 with Pockets' tiles,
+   then adds, the way the mixer does for ingredients: a face in each square (UI sprite slots 0xB0-0xBB, moved
+   to the squares while the screen is open), the selection frame on the face touched, its name, the Rep
+   Group's relationship bar and the Beads in the text box, the page in the small box. Like the mixer, the phone use ends while
    the screen is open (the city waits behind it) and the player goes back to where they stood. The call
    or invitation itself is the game's own (phone_call / phone_invite: the answer, the face, +1
    relationship, the visit), made once the city runs again, with the player picking up the phone, holding
@@ -15,7 +16,9 @@
 #include "mod.h"
 
 #define PHONE_MODE   7
-#define PER_PAGE     8
+#define COLS         7                 /* the squares: 7 across, 2 down */
+#define PER_PAGE     14
+#define GRID_C0      (30 - 4 * COLS)   /* the grid's left edge (map column): it ends on the text box's right edge */
 #define S_CALL       0x1C              /* phone use states: Call Friend's list, Invite's list */
 #define S_INVITE     0x1D
 #define STR_HELP     8311              /* mods/phone/text/strings.tsv */
@@ -38,14 +41,17 @@
 #define B_CLOSE       0x10
 #define B_SPARE1      12               /* the mixers' blender squares: obj_screen_buttons expects them */
 #define B_SPARE2      13
-#define B_NEXT        9                /* ours: the next 8 people (the mixer keeps blender squares in 9-11) */
-#define B_PREV        10               /* ours: the 8 before */
+#define B_NEXT        9                /* ours: the next page (the mixer keeps blender squares in 9-11) */
+#define B_PREV        10               /* ours: the page before */
 #define K_LEFT        0                /* round button kinds: 0 left, 1 right, 2 up, 3 down, 4 back, 5 tick */
 #define K_RIGHT       1
-#define NEXT_X        130              /* where the green button was (it stays hidden) */
-#define PREV_X        16               /* the same on the panel's left */
-#define ARROW_Y       101
-#define SLOT_SQUARE   0xB0             /* UI sprite slots of the 8 squares */
+#define NEXT_X        236              /* the arrows on either side of the name, under the faces (owner's */
+#define PREV_X        20               /* picture, 2026-11-20); the red arrow (the game's, slot 0x10) stays */
+#define ARROW_Y       94               /* in the bottom strip's middle (128,179) */
+#define SLOT_SQUARE   0xB0             /* UI sprite slots of the 12 squares (the mixer's 8 squares and its 4
+                                          blender ones, unused in mode 7): moved to our squares while open */
+#define SQ_X(i)       (8 * GRID_C0 + 20 + 32 * ((i) % COLS))   /* a square's centre (as Pockets' slots 0x4C-0x53) */
+#define SQ_Y(i)       (36 + 32 * ((i) / COLS))
 
 #define set_state_here  G(set_state_here, void (*)(int, int, int))
 #define set_state_other G(set_state_other, void (*)(int, int, int))
@@ -60,7 +66,8 @@
 #define text_draw       G(text_draw, void (*)(int, int, int, const char *, int))
 #define text_font       G(text_font, void (*)(int, int, int))
 #define map_fill        G(map_fill, void (*)(int, int, int, int, int, int))
-#define clear_panel()   map_fill(1, 1, 12, 17, 10, 0)  /* the panel's text rows, to its right edge (the number) */
+#define TEXT_LAYER   0                 /* Pockets' text layer (BG0) */
+#define clear_panel()   map_fill(TEXT_LAYER, 1, 10, 30, 7, 0)  /* the text box's rows (y 80-135) */
 #define ui_sound        G(ui_sound, void (*)(int))
 #define entity_new      G(entity_new, u8 *(*)(int))
 #define entity_records  G(entity_records, void (*)(u8 *, u32))
@@ -72,61 +79,138 @@
 #define RELATIONSHIP(id) (*(volatile s8 *)(ADDR_relationships + 4 * ((id) - 31)))
 #define BEAD_GIVEN(id) (*(volatile u8 *)(ADDR_bead_given + 4 * ((id) - 31)))
 #define BAR_PAL_ROW  0xD
-#define NAME_Y       96                /* the panel: the name, then the bar and its number */
-#define BAR_X        3
-#define BAR_Y        114
-#define NUM_X        139
+#define NAME_Y       87                /* the text box: the name where Pockets writes the item's, the bar under it */
+#define BAR_X        30
+#define BAR_Y        103
+#define NUM_X        178
+#define PAGE_Y       147               /* the small box (Pockets' money) */
 /* The red Beads (the Collectibles screen's, ui_sprite_table row 20) under the bar: this person gave you theirs */
 #define BEAD_SPRITE  20
-#define BEAD_PAL_ROW 0xC
-#define BEAD_X       70                /* drawn about 8 px left of and 3 px above this: centred in the space */
-#define BEAD_Y       138               /* between the bar's edge (y 128) and the panel's bottom (155) */
+#define BEAD_PAL_ROW 0xD               /* the bar's colours (owner 2026-11-20: another colour is fine) */
+#define CURSOR_ROW   0xD               /* the selection frame too: its own greys are nearly the bar's */
+#define BEAD_X       106               /* drawn about 8 px left of and 3 px above this */
+#define BEAD_Y       128
+/* Sprite palette rows: each face needs its own (their colours differ); 0xA is the round buttons', 0xD the
+   bar's, which the Beads and the selection frame share (their own rows were 0xC and 0xF). That leaves 14
+   rows, so 14 faces a page. */
+static const u8 face_row[PER_PAGE] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0xB, 0xC, 0xE, 0xF };
 #define ui_sprites   (*(const u8 *const *)0x0204ED20)   /* ui_sprite_table (moved when a mod adds objects) */
 #define phone_call      G(phone_call, void (*)(int, void *))
 #define phone_invite    G(phone_invite, void (*)(int, void *))
 
-/* The phone picture instead of the mixer's blender (mods/phone/art/make_art.py writes phone_art.inc).
-   The bottom screen: BG3 = the right-hand panel with the blender in it (plain purple tile 0x6002, columns
-   21-31), BG2 = the frames, with the blender's 3 squares at columns 24-28, rows 4-15 (blank tile 0x011B);
-   both use tiles from char base 0, and the game's own go up to 297. The picture goes on BG2 (so its
-   see-through pixels show the purple below) in tiles 0x200 onwards, colours in BG palette row 15.
-   The picture is not in the repo (phone_art.inc is made locally from your own PNG): without it, the
-   blender stays. */
-#if __has_include("phone_art.inc")
-#include "phone_art.inc"
-#define HAVE_ART 1
-#else
-#define HAVE_ART 0
-#define ART_W 1
-#define ART_H 1
-static const u16 art_pal[16];
-static const u32 art_tiles[8];
-#endif
-#define ART_TILE     0x200
-#define ART_ROW      15
-#define ART_X        24                /* tiles: the picture's top-left on the screen */
-#define ART_Y        7
-#define BG_PURPLE    0x6002
-#define BG2_BLANK    0x011B
-#define BG_CHAR(n)   (0x06200000 + ((GAME_VAR(0x04001008 + 2 * (n), u16) >> 2) & 15) * 0x4000)
-#define SUB_BG_PAL   0x05000400
-static u8 art_pending;                 /* frames left to (re)draw it: the game may load the screen late */
+/* Pockets' look (state 13's enter, 0x0204036C, and the city menu's frame, state 0x22's enter 0x0207121C):
+   the bottom screen's layers set up as Pockets has them (BG0 the text, BG1 the panel, BG3 the frame; BG2
+   off), their backgrounds loaded by the game's own loader, and the text colours (palette 0x286D, row 0). */
+#define layers_off   G(layers_off, void (*)(u32))
+#define display_on   G(display_on, void (*)(u32))
+#define layer_setup  G(layer_setup, void (*)(int, u32))
+#define layer_clear  G(layer_clear, void (*)(int, int))
+#define bg_load      G(bg_load, int (*)(int, u32, int, int, int, int))
+#define pal_load     G(pal_load, u32 (*)(u32, int))
+#define text_layer   G(text_layer, void (*)(u32))
+#define CFG_TEXT     0x1C09            /* as Pockets: char 2, map 28 (0x020C77B0) */
+#define CFG_PANEL    0x1B02            /* char 0, map 27 (0x020C77AC) */
+#define CFG_FRAME    0x1F11            /* char 4, map 31 (the city menu's, 0x020F563C) */
+#define CFG_MENU_BG  0x1E12            /* the city menu's BG2 (0x02071194) */
+#define CFG_EMPTY    0x1D00            /* Pockets' BG2: empty (0x020C77A8) */
+#define PIC_MENU_BG  0x2891            /* the city menu's BG2 picture: it brings the BG colours (all rows) */
+#define PIC_PANEL    0x288D            /* Pockets' panel (squares, text box, small box) */
+#define PIC_FRAME    0x286E            /* the city menu's frame */
+#define PAL_TEXT     0x286D
+#define PANEL_MAP    ((volatile u16 *)(0x06200000 + 27 * 0x800))
 
-static void draw_art(void)
+/* Pockets' panel has 5 squares on the left and 4 x 2 on the right. The right ones' tiles, row by row (map
+   rows 2-10: top edge, 3 inside, the middle edge, 3 inside, bottom edge): column 14 the left edge, 15-17 a
+   square, 18 the edge between two, 30 the right edge; column 0 the plain dark. Laid out again 6 across from
+   column 4, each square is 5 tiles wide with its edges (centres x 52 + 32 i, y 36 / 68). */
+static u16 tile_tpl[9][7];             /* per row: plain, left edge, square x 3, between, right edge */
+static u16 box_top[3];                 /* map row 10 is also the text box's top: its left corner (column 1), the
+                                          plain line (10-13, under the gap) and its right corner (30) */
+static u8 tpl_ok;
+
+static void grid_draw(void)
 {
-    if (!HAVE_ART)
+    volatile u16 *m = PANEL_MAP;
+    if (!tpl_ok) {
+        for (int r = 0; r < 9; r++) {
+            const volatile u16 *row = m + 32 * (r + 2);
+            u16 t[7] = { row[0], row[14], row[15], row[16], row[17], row[18], row[30] };
+            for (int k = 0; k < 7; k++)
+                tile_tpl[r][k] = t[k];
+        }
+        box_top[0] = m[32 * 10 + 1], box_top[1] = m[32 * 10 + 10], box_top[2] = m[32 * 10 + 30];
+        tpl_ok = 1;
+    }
+    for (int r = 0; r < 9; r++) {
+        volatile u16 *row = m + 32 * (r + 2);
+        const u16 *t = tile_tpl[r];
+        int last = r == 8;                       /* the bottom edge, on the text box's top line */
+        for (int c = 1; c <= 30; c++)
+            row[c] = last ? box_top[1] : t[0];
+        if (last)
+            row[1] = box_top[0], row[30] = box_top[2];
+        row[GRID_C0] = t[1];
+        for (int k = 0; k < COLS; k++) {
+            row[GRID_C0 + 1 + 4 * k] = t[2];
+            row[GRID_C0 + 2 + 4 * k] = t[3];
+            row[GRID_C0 + 3 + 4 * k] = t[4];
+            row[GRID_C0 + 4 + 4 * k] = k + 1 < COLS ? t[5] : t[6];   /* the last: the box's right corner */
+        }
+    }
+}
+
+static void pockets_look(void)
+{
+    layers_off(0);                               /* BG2 (the mixer's frames) stays off */
+    display_on(0x1000);
+    /* as the city menu does (city_menu_enter, then 0x02071194): its frame on BG3, then its BG2 picture, which
+       brings the colours the frame and Pockets' panel are drawn with (the panel and the frame have none; the
+       Mixer's enter has just put its own there: the panel showed in its colours) */
+    layer_setup(3, CFG_FRAME);
+    bg_load(3, PIC_FRAME, 2, 0, 0, 0);
+    layer_setup(2, CFG_MENU_BG);
+    bg_load(2, PIC_MENU_BG, 0xF7, 0, 0, 0);
+    /* then as Pockets does (pockets_enter): BG2 emptied, the text layer, the panel, the text colours */
+    layer_setup(0, CFG_TEXT);
+    layer_clear(0, 0);
+    layer_setup(1, CFG_PANEL);
+    layer_setup(2, CFG_EMPTY);
+    layer_clear(2, 0);
+    text_layer(CFG_TEXT);
+    bg_load(1, PIC_PANEL, 1, 0, 0, 0);
+    pal_load(PAL_TEXT, 0);
+    tpl_ok = 0;                                  /* a fresh panel: read the squares' tiles again */
+    grid_draw();
+}
+
+/* The squares' UI sprite slots (ui_slot_pos: s16 x, y, x2, y2 each) moved to our squares while the screen is
+   open, and put back when it goes (and before the game's own touch screens open, should it ever close another
+   way). The selection frame and the faces go wherever their slot says. */
+#define SLOT_POS     ((volatile s16 *)ADDR_ui_slot_pos)
+static s16 slot_saved[PER_PAGE][4];
+static u8 slots_moved;
+
+static void slots_move(void)
+{
+    for (int i = 0; i < PER_PAGE; i++) {
+        volatile s16 *p = SLOT_POS + 4 * (SLOT_SQUARE + i);
+        if (!slots_moved)
+            for (int k = 0; k < 4; k++)
+                slot_saved[i][k] = p[k];
+        p[0] = p[2] = (s16)SQ_X(i);
+        p[1] = p[3] = (s16)SQ_Y(i);
+    }
+    slots_moved = 1;
+}
+
+static void slots_back(void)
+{
+    if (!slots_moved)
         return;
-    volatile u32 *t = (volatile u32 *)(BG_CHAR(2) + ART_TILE * 32);
-    for (int k = 0; k < ART_W * ART_H * 8; k++)
-        t[k] = art_tiles[k];
-    volatile u16 *p = (volatile u16 *)(SUB_BG_PAL + ART_ROW * 32);
-    for (int k = 0; k < 16; k++)
-        p[k] = art_pal[k];
-    map_fill(3, 21, 0, 11, 24, BG_PURPLE);         /* the panel without the blender */
-    map_fill(2, 24, 4, 5, 12, BG2_BLANK);          /* without its 3 squares */
-    for (int y = 0; y < ART_H; y++)
-        for (int x = 0; x < ART_W; x++)
-            map_fill(2, ART_X + x, ART_Y + y, 1, 1, ART_ROW << 12 | (ART_TILE + y * ART_W + x));
+    for (int i = 0; i < PER_PAGE; i++)
+        for (int k = 0; k < 4; k++)
+            SLOT_POS[4 * (SLOT_SQUARE + i) + k] = slot_saved[i][k];
+    slots_moved = 0;
 }
 
 typedef struct { u8 *player; u8 pad[3]; u8 facing; s16 x, y; } return_spot_t;
@@ -147,6 +231,7 @@ static u8 dummy_rec[12];               /* phone_call / phone_invite set the use'
 static u8 last_id;                     /* the last person called or invited (0 = nobody yet); saved */
 static u8 start_facing;                /* facing when the phone use started (turned towards the phone) */
 static u8 refacing;                    /* ticks left to face the phone again after the screens close */
+static u8 *face[PER_PAGE];             /* the faces on this page (sprites of the screen: freed with it) */
 
 static void show(int slot, int on);
 /* The selection frame (button slot 8, a UI sprite) onto square i: its slot (+8) and back to state 0 (+0x105),
@@ -203,12 +288,14 @@ void phone_faces_open(void)
     open_screens();
 }
 
-/* For other mods (the cellphone, 2026-11-20): Call Friend from anywhere, with no phone object. They find
-   this table by its magic and its own address (mods/cellphone/code/main.c). */
+/* For other mods (the cellphone, 2026-11-20): the faces screen from anywhere, with no phone object. They
+   find this table by its magic and its own address (mods/cellphone/code/main.c). The cellphone runs the
+   phone's menu itself (with the game's own boxes when this mod is missing or switched off). */
 typedef struct {
     u32 magic, self, version;
     int (*open_anywhere)(void);        /* version 1: straight to Call Friend */
-    int (*open_menu)(void);            /* version 2: the phone's own question box first (see phone_menu_tick) */
+    int (*open_menu)(void);            /* version 2 only (the menu is the cellphone's since version 3): 0 */
+    int (*open_faces)(int invite);     /* version 3: Call Friend (0) or Invite a Friend Over (1) */
 } phone_api_t;
 #define PHONE_API_MAGIC 0x454E4F50u      /* 'PONE' */
 #define people_known G(people_known, int (*)(void *, s8 *, int, int, int))
@@ -276,10 +363,13 @@ static int phone_open_anywhere(void)
     return open_anywhere_as(S_CALL);
 }
 
-static int phone_open_menu(void);
+static int phone_open_faces(int invite)
+{
+    return open_anywhere_as(invite ? S_INVITE : S_CALL);
+}
 
 __attribute__((used, retain)) const phone_api_t phone_api = {
-    PHONE_API_MAGIC, (u32)&phone_api, 2, phone_open_anywhere, phone_open_menu
+    PHONE_API_MAGIC, (u32)&phone_api, 3, phone_open_anywhere, 0, phone_open_faces
 };
 
 static void open_screens(void)
@@ -301,9 +391,11 @@ static void open_screens(void)
 void phone_screen_buttons(void)
 {
     if (MODE(screen) != PHONE_MODE) {
+        slots_back();                            /* the mixer's squares where the game has them */
         obj_screen_buttons();
         return;
     }
+    slots_move();                                /* before the selection frame is made at the first one */
     /* obj_screen_buttons changes the flags (+0xC) of buttons 12 and 13, which only the mixers' modes make
        (their blender squares). In mode 7 they are empty: the game wrote to address 0x0C, which DeSmuME
        lets pass and melonDS (and the DS) stops on (a data abort: the screen went black and stayed so). */
@@ -311,17 +403,21 @@ void phone_screen_buttons(void)
     buttons[B_SPARE1] = (u8 *)spare[0];
     buttons[B_SPARE2] = (u8 *)spare[1];
     obj_screen_buttons();
+    if (buttons[B_CURSOR])                       /* the frame made its colours row 0xF: it takes the bar's */
+        set_palette_row(buttons[B_CURSOR], CURSOR_ROW);
     buttons[B_SPARE1] = 0;
     buttons[B_SPARE2] = 0;
     int n = count();
-    for (int i = 0; i < PER_PAGE; i++) {
+    for (int i = 0; i < 8; i++)                  /* the mixer's ingredient buttons: none */
         buttons[i] = 0;
+    for (int i = 0; i < PER_PAGE; i++) {
+        face[i] = 0;
         if (page + i < n)                        /* its own palette row, as the mixer's ingredients */
-            buttons[i] = ui_sprite_new(SLOT_SQUARE + i, face_image(phone_list[page + i]), i, 2);
+            face[i] = ui_sprite_new(SLOT_SQUARE + i, face_image(phone_list[page + i]), face_row[i], 2);
     }
     sel = -1;                                    /* the last person called, if on this page */
     armed = -1;
-    if (want_sel >= 0 && page + want_sel < n && buttons[want_sel]) {   /* the D-pad went to another page */
+    if (want_sel >= 0 && page + want_sel < n && face[want_sel]) {   /* the D-pad went to another page */
         sel = want_sel;
         if (buttons[B_CURSOR])
             move_cursor(sel);
@@ -329,12 +425,12 @@ void phone_screen_buttons(void)
     int keep = want_sel >= 0;
     want_sel = -1;
     for (int i = 0; !keep && i < PER_PAGE && page + i < n; i++)
-        if (last_id && phone_list[page + i] == last_id && buttons[i]) {
+        if (last_id && phone_list[page + i] == last_id && face[i]) {
             sel = (s8)i;
             if (buttons[B_CURSOR])
                 move_cursor(i);
         }
-    if (sel < 0 && buttons[0]) {                 /* nobody called yet (or not on this page): the first face,
+    if (sel < 0 && face[0]) {                    /* nobody called yet (or not on this page): the first face,
                                                     where the game draws the frame anyway */
         sel = 0;
         if (buttons[B_CURSOR])
@@ -344,7 +440,7 @@ void phone_screen_buttons(void)
     buttons[B_PREV] = n > PER_PAGE ? button_new(K_LEFT, 10, 0, 1, PREV_X << 16, ARROW_Y << 16) : 0;
 }
 
-/* The panel under the squares: the selected person's name and where they are. */
+/* The text box under the squares: the selected person's name, the relationship and the Beads. */
 static void draw_panel(void)
 {
     clear_panel();
@@ -358,7 +454,7 @@ static void draw_panel(void)
     if (bead && BEAD_GIVEN(id))                  /* they gave you their Beads */
         *(u32 *)(bead + 0xC) |= 1;
     text_font(3, 0, -1);
-    text_draw(0x1F, 72, NAME_Y, text_get(STR_NAME + id), 1);
+    text_draw(0x1F, 128, NAME_Y, text_get(STR_NAME + id), 1);
     /* the relationship: the Rep Group's bar and its number (-100..100) */
     int rel = RELATIONSHIP(id);
     if (bar) {
@@ -411,6 +507,7 @@ static void bead_make(void)
 static void bar_make(void)
 {
     bar_free();
+    bead_make();                                 /* first: it loads its red into the row, the bar's replaces it */
     palette_load(BAR_PAL_ROW, 0x020F6F00);
     bar = entity_new(0x19);
     if (!bar)
@@ -421,7 +518,6 @@ static void bar_make(void)
     *(u32 *)(bar + 0x90) &= 0xFFFFF3FFu;
     *(u32 *)(bar + 0xC) |= 0x200009;
     *(u32 *)(bar + 0xC) &= ~1u;                  /* hidden until someone is selected */
-    bead_make();
 }
 
 /* State 31 enter: the title (instead of the mixer's name). */
@@ -431,8 +527,23 @@ void phone_screen_title(int part)
         obj_screen_draw(part);
         return;
     }
+    pockets_look();
     text_font(3, 0, -1);
-    text_draw(1, 72, 6, text_get(kind == S_INVITE ? STR_INVITE : STR_CALL), 1);
+    text_draw(1, 128, 5, text_get(kind == S_INVITE ? STR_INVITE : STR_CALL), 1);
+    int n = count();
+    if (n > PER_PAGE) {                          /* the page, in the small box: "1/2" */
+        char s[8], *p = s;
+        int a = page / PER_PAGE + 1, b = (n + PER_PAGE - 1) / PER_PAGE;
+        if (a >= 10)
+            *p++ = (char)('0' + a / 10);
+        *p++ = (char)('0' + a % 10);
+        *p++ = '/';
+        if (b >= 10)
+            *p++ = (char)('0' + b / 10);
+        *p++ = (char)('0' + b % 10);
+        *p = 0;
+        text_draw(0x55, 128, PAGE_Y, s, 1);
+    }
 }
 
 /* State 31 enter, last: the first part to show (the mixer draws an item into the panel). */
@@ -444,13 +555,12 @@ void phone_screen_part(int part)
     }
     bar_make();
     draw_panel();
-    draw_art();
-    art_pending = 2;
 }
 
 static void close_screens(void)
 {
     bar_free();
+    slots_back();
     refacing = 15;                               /* the city comes back facing elsewhere: face the phone */
     set_state_here(0x22, 0, 0);                  /* bottom: the city's menus again */
     set_state_other(1, 2, GAME_VAR(ADDR_current_area, u32));   /* top: the city, coming back */
@@ -491,10 +601,6 @@ void phone_screen_touch(void)
         obj_screen_touch();
         return;
     }
-    if (art_pending) {
-        art_pending--;
-        draw_art();
-    }
     int n = count();
     u16 keys = GAME_VAR(ADDR_input_state + 10, u16);   /* pressed this frame */
     static u8 was_touched;
@@ -507,15 +613,15 @@ void phone_screen_touch(void)
         } else if (keys & KEY_A) {               /* A: call the one selected (or select the first) */
             if (sel >= 0)
                 make_call();
-            else if (buttons[0])
+            else if (face[0])
                 select(0);
         } else if (keys & (KEY_LEFT | KEY_RIGHT | KEY_UP | KEY_DOWN | KEY_L | KEY_R)) {
-            /* the 8 squares are 4 across, 2 down; left / right go on to the next or last page */
+            /* the 12 squares are 6 across, 2 down; left / right go on to the next or last page */
             int at = page + (sel < 0 ? 0 : sel), to = at;
             if (sel >= 0 && keys & KEY_RIGHT) to = at + 1 < n ? at + 1 : 0;
             if (sel >= 0 && keys & KEY_LEFT) to = at > 0 ? at - 1 : n - 1;
-            if (sel >= 0 && keys & KEY_DOWN && sel < 4 && at + 4 < n) to = at + 4;
-            if (sel >= 0 && keys & KEY_UP && sel >= 4) to = at - 4;
+            if (sel >= 0 && keys & KEY_DOWN && sel < COLS && at + COLS < n) to = at + COLS;
+            if (sel >= 0 && keys & KEY_UP && sel >= COLS) to = at - COLS;
             if (keys & KEY_R) to = page + PER_PAGE < n ? page + PER_PAGE : 0;
             if (keys & KEY_L) to = page >= PER_PAGE ? page - PER_PAGE : (n - 1) - (n - 1) % PER_PAGE;
             if (to - to % PER_PAGE != page) {    /* another page: draw it, then select there */
@@ -523,7 +629,7 @@ void phone_screen_touch(void)
                 page = (u8)(to - to % PER_PAGE);
                 want_sel = (s8)(to % PER_PAGE);
                 bar_free(), set_state_here(0x1F, PHONE_MODE, 0);
-            } else if (buttons[to - page]) {
+            } else if (face[to - page]) {
                 select(to - page);
             }
         }
@@ -536,7 +642,7 @@ void phone_screen_touch(void)
         return;
     }
     int next = buttons[B_NEXT] && button_hit(B_NEXT), prev = !next && buttons[B_PREV] && button_hit(B_PREV);
-    if (next || prev) {                          /* the next / last 8 people (round from the end) */
+    if (next || prev) {                          /* the next / last page (round from the end) */
         ui_sound(1);
         if (next)
             page = page + PER_PAGE < n ? page + PER_PAGE : 0;
@@ -545,8 +651,9 @@ void phone_screen_touch(void)
         bar_free(), set_state_here(0x1F, PHONE_MODE, 0);     /* the screen again, with them */
         return;
     }
-    for (int i = 0; i < PER_PAGE; i++)
-        if (buttons[i] && button_hit(i)) {
+    int tx = GAME_VAR(ADDR_touch_state + 0x0E, u16), ty = GAME_VAR(ADDR_touch_state + 0x10, u16);
+    for (int i = 0; i < PER_PAGE; i++)          /* the 30 x 30 box button_hit uses, around the square */
+        if (face[i] && tx >= SQ_X(i) - 15 && tx < SQ_X(i) + 15 && ty >= SQ_Y(i) - 15 && ty < SQ_Y(i) + 15) {
             if (armed == i && sel == i) {        /* the same face touched twice: call */
                 make_call();
                 return;
@@ -636,109 +743,26 @@ static void make_it(int i)
         phone_call(i, dummy_rec);
 }
 
-/* The phone's own menu from anywhere (the cellphone, phone_api version 2), as phone_activity runs it with
-   a phone object: pick up (state 8), the question box from phone_open (0x1A: Call Services / Call Friend /
-   Invite a Friend Over at home, only Call Friend away), then Call Services' box (0x1B), the order, 30 ticks
-   on the line (0x1F) and hang up, sending the service (0x1E). Call Friend and Invite open this mod's touch
-   screen, as with a phone object. There is no use record and nothing to pay (the pay phone's 1 Simoleon). */
 #define phone_open_box  G(phone_open, void (*)(void))
-#define services_box    G(phone_services_box, void (*)(void))
-#define service_order   G(service_order, void (*)(int, void *))
-#define service_call    G(service_call, void (*)(int))
 #define is_home_area    G(is_home_area, int (*)(void *, int))
-#define CANCEL       0x7FFFFFFF
-#define NO_RESULT    0x7FFFFFFE
-#define PICKUP_TICKS 30                /* at most (0x51 may not set the end bit when we play it) */
-#define LINE_TICKS   30                /* on the line after ordering (state 0x1F counts 30) */
-enum { M_NONE, M_PICK_UP, M_CHOICE, M_SERVICES, M_LINE };
-static u8 menu_step, menu_ticks, menu_home;
-static u8 *menu_pl;
 
-static void menu_hang_up(void)
+/* The phone's choices (call phone_open in phone_activity state 0x19). At home the game's box (Call Services
+   / Call Friend / Invite). Away its box would hold only Call Friend: no box, the list as phone_open makes
+   it and the answer "Call Friend" (1), read by state 0x1A on the next tick, which opens the faces (or
+   hangs up when nobody is known). */
+void phone_choices(void)
 {
-    ui_sound(SND_HANG_UP);
-    if (menu_pl[0xC7] == ANIM(0, 1, 2))
-        entity_play_anim(menu_pl, ANIM(1, 1, 2));
-    menu_step = M_NONE;
-}
-
-static int phone_open_menu(void)
-{
-    u8 *pl = player_entity();
-    if (!pl || menu_step != M_NONE || anim_step != A_NONE || picked >= 0)
-        return 0;
-    menu_pl = pl;
-    menu_home = (u8)is_home_area((void *)ADDR_home_lot, GAME_VAR(ADDR_current_area, u32) & 0xFF);
-    ui_sound(SND_PICK_UP);
-    entity_play_anim(pl, ANIM(0, 1, 2));
-    menu_step = M_PICK_UP, menu_ticks = 0;
-    return 1;
-}
-
-/* Every city tick (the city waits while a question box is up, so a result is read once it has closed). */
-static int phone_menu_tick(void)
-{
-    if (menu_step == M_NONE)
-        return 0;
-    u8 *pl = menu_pl;
-    int mine = pl[0xC7] == ANIM(0, 1, 2);        /* still holding the phone (not walking away) */
-    menu_ticks++;
-    if (TOP_STATE == TOP_DIALOG)
-        return 1;
-    int r = (int)RESULT0;
-    switch (menu_step) {
-    case M_PICK_UP:
-        if (!mine) {                               /* walked off: no menu */
-            menu_step = M_NONE;
-        } else if ((*(u32 *)(pl + 0xC) & ANIM_DONE) || menu_ticks > PICKUP_TICKS) {
-            RESULT0 = NO_RESULT;
-            phone_open_box();                      /* phone_list and the question box */
-            menu_step = M_CHOICE;
-        }
-        break;
-    case M_CHOICE:
-        if (!menu_home && r == 0)                  /* away there is only Call Friend */
-            r = 1;
-        if (r == 0) {
-            RESULT0 = NO_RESULT;
-            services_box();
-            menu_step = M_SERVICES;
-        } else if ((r == 1 && phone_list[0] >= 0) || r == 2) {
-            menu_step = M_NONE;                    /* the touch screen; the call picks up again after */
-            entity_play_anim(pl, ANIM(2, 1, 2));
-            open_anywhere_as(r == 1 ? S_CALL : S_INVITE);
-        } else {
-            menu_hang_up();
-        }
-        break;
-    case M_SERVICES:
-        if (r >= 0 && r <= 2) {
-            GAME_VAR(ADDR_phone_service, u8) = (u8)r;
-            *(u16 *)(dummy_rec + 6) = 0;
-            service_order(r == 0 ? 0 : r + 1, dummy_rec);   /* the answer (or "not enough money") */
-            menu_ticks = 0;
-            menu_step = M_LINE;
-        } else {
-            menu_hang_up();
-        }
-        break;
-    case M_LINE:
-        if (*(u16 *)(dummy_rec + 6) == 0x1F && menu_ticks <= LINE_TICKS)
-            break;
-        r = GAME_VAR(ADDR_phone_service, u8);
-        menu_hang_up();
-        if (*(u16 *)(dummy_rec + 6) == 0x1F && r <= 2)
-            service_call(r == 0 ? 0 : r + 1);
-        break;
+    if (is_home_area((void *)ADDR_home_lot, GAME_VAR(ADDR_current_area, u32) & 0xFF)) {
+        phone_open_box();
+        return;
     }
-    return 1;
+    make_list();
+    RESULT0 = 1;
 }
 
 /* The city runs again: pick up, make the call or the invitation, hang up. */
 void mod_on_tick(void)
 {
-    if (phone_menu_tick())
-        return;
     u8 *pl = return_spot.player;
     if (refacing && pl) {
         refacing--;

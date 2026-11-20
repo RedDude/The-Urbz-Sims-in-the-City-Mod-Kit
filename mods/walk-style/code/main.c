@@ -44,7 +44,7 @@ static char *put(char *d, const char *s)
 }
 
 #define FIRST_GROUP 2            /* styles[2..5]: the four pictures, in this order */
-#define ICON_Y      62
+#define ICON_Y      32
 #define ICON_X0     40           /* "Streeties" stays right of x 16 (what the game clears) */
 #define ICON_DX     46
 #define GROUP_NAMES 829          /* the game's text: Streeties, Nerdies, Richies, Artsies */

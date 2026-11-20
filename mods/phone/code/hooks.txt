@@ -8,6 +8,7 @@ u32 0x020A5494 0xE1A00000    # was E5C01000 strb r1,[r0] (Invite: page = 0) -> n
 
 # The touch screen, like the mixer's (state 31 bottom + 37 top, mode 7).
 wrap phone_activity phone_seen          # keep the phone use's record
+call 0x020A5390 phone_choices           # state 0x19: BL phone_open (the choice box); away (Call Friend only) no box
 call 0x020A547C phone_faces_open        # Call Friend: was BL phone_names_list (the box with 4 names)
 call 0x020A5498 phone_faces_open        # Invite a Friend Over: the same
 call 0x020289AC phone_screen_buttons    # state 31 enter: BL obj_screen_buttons, then the people

@@ -1,9 +1,9 @@
 {
   "name": "phone",
   "title": "Phone",
-  "version": "0.7",
+  "version": "0.9",
   "author": "Urbz DX",
-  "description": "Call Friend and Invite a Friend Over open a touch screen with a button for each person you know, like the Mixer's and the Oven's.",
+  "description": "Call Friend and Invite a Friend Over open a touch screen that looks like Pockets, with a face for each person you know (14 a page). Away from home, where Call Friend is the only choice, the faces open straight away.",
   "toggle": true,
   "default": true,
   "save_bytes": 1
