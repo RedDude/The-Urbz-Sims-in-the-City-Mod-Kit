@@ -1,20 +1,20 @@
 {
  "relocs": [
   32,
-  436,
-  444,
-  448
+  484,
+  496,
+  500
  ],
  "symbols": {
-  "bug_fixes": 460,
-  "leave_seen": 668,
-  "leave_since": 472,
+  "bug_fixes": 512,
+  "leave_seen": 724,
+  "leave_since": 528,
   "mod_on_area_enter": 0,
   "mod_on_tick": 36
  },
  "bss": 392,
  "sources": {
-  "main.c": "d8e644b97fa1491eb925c7b4bb80391bb82267da",
+  "main.c": "965e9ae274139a13bf9e22880afe70d4fc954610",
   "hooks.txt": "16f413f1b569d49857283db3637c42ad34c09524"
  }
 }

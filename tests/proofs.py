@@ -655,6 +655,51 @@ def p_fix_stuck_leaving():
         o_came, o_sent, o_last // 60, o_last % 60, end // 60, end % 60, f_came, f_sent, f_last // 60, f_last % 60,
         counters[2])
 
+TRASH_PICKED, AREA_NOW, URBANIA_PARK = 0x02141B48, 0x02141FEC, 19
+
+
+def trash_in_park(rom, goal_done=False):
+    """Urbania Park from urbania.sav with trash_picked poked to 101 and every collectible slot marked as rolled and
+    spawned today (game_state+0xA18..0xA27), so chance plays no part. After 1 s the park is loaded again through the
+    game's own loader. Returns (trash_picked after 1 s, area, {kind: piles} in the world list after the reload)."""
+    entry = json.load(open(os.path.join(KIT, 'docs', 'data', 'areas.json')))['areas'][URBANIA_PARK]['entry_points']
+    goto = ['0x027C009C=81000000', '0x027C00A0=00000000', '0x027C00A4=%s' % struct.pack('<I', URBANIA_PARK).hex(),
+            '0x02141C28=%02x' % (entry[0]['id'] if entry else 0)]
+    pokes = ['0x02141B38=' + 'ff' * 16, '0x%08X=65' % TRASH_PICKED]
+    if goal_done:
+        pokes.append('0x02141AC7=01')                                     # goal (5,2) sub-goal 2 done: the Artsies' trash
+    snaps, _ = snapshots(rom, 'urbania', 2, 30 if goal_done else 450, ['0x%08X:1' % TRASH_PICKED,
+                           '0x%08X:4' % AREA_NOW, '0x02121AF0:4', HEAP_SCAN], pokes=pokes, pokes_at={1: goto})
+    base = int(HEAP_SCAN.split(':')[0], 16)
+    picked, area, head, heap = snaps[-1]
+    kinds, e, n = {}, struct.unpack('<I', head)[0], 0
+    while e and base <= e < base + len(heap) - 0x148 and n < 500:
+        t, k = struct.unpack_from('<HH', heap, e - base + 8)
+        if t == 16:
+            kinds[k] = kinds.get(k, 0) + 1
+        e, n = struct.unpack_from('<I', heap, e - base)[0], n + 1
+    return snaps[0][0][0], struct.unpack('<I', area)[0], kinds
+
+
+def p_fix_trash():
+    """Bug Fixes, trash that stops coming back (mods/bug-fixes, docs/systems.md "Collectibles and the trash bug"):
+    every pile of trash picked up adds 1 to trash_picked (saved), and over 100 the game never makes trash again, but
+    the Artsies' "Recycle 100 piles of trash" only counts trash sold after they give you the challenge. Urbania Park
+    has 7 trash records and 3 others (cans, a licence plate). With trash_picked at 101 and every slot due today, the
+    original ROM makes no trash after a reload; with Bug Fixes the count goes back to 100 and all 7 piles are there.
+    With the Artsies' trash goal done, Bug Fixes leaves the count alone (the original game from then on)."""
+    rom = build('fix-trash', [os.path.join(KIT, 'mods', 'bug-fixes')])[0]
+    o_picked, o_area, o_kinds = trash_in_park(os.path.join(PROJ, 'base.nds'))
+    f_picked, f_area, f_kinds = trash_in_park(rom)
+    d_picked = trash_in_park(rom, goal_done=True)[0]
+    others = lambda k: sum(v for kind, v in k.items() if kind)
+    ok = (o_area == f_area == URBANIA_PARK and o_picked == 101 and o_kinds.get(0, 0) == 0 and others(o_kinds) == 3
+          and f_picked == 100 and f_kinds.get(0, 0) == 7 and others(f_kinds) == 3 and d_picked == 101)
+    return ok, ('trash_picked 101, Urbania Park loaded again. Original ROM: count stays %d, collectibles by kind %s '
+                '(area %d); with Bug Fixes: count %d, collectibles %s (area %d); goal done: count stays %d') % (
+        o_picked, dict(sorted(o_kinds.items())), o_area, f_picked, dict(sorted(f_kinds.items())), f_area, d_picked)
+
+
 PHOEBE = 54
 
 
@@ -2864,7 +2909,7 @@ PROOFS = [('vanilla', p_vanilla), ('clock-speed', p_clock_speed), ('hooks-wrap-c
           ('pets-beds', p_pets_beds), ('pets-move', p_pets_move), ('pets-page', p_pets_page),
           ('strays-appear', p_strays_appear), ('strays-trust', p_strays_trust), ('pets-stall', p_pets_stall), ('pets-colours', p_pets_colours), ('pets-night', p_pets_night), ('pets-come-back', p_pets_come_back), ('pets-not-yours', p_pets_not_yours), ('pets-play', p_pets_play),
           ('melonds', p_melonds), ('pets-gate', p_pets_gate), ('pets-gate2', p_pets_gate2),
-          ('npc-seat-turns', p_npc_seat_turns), ('npc-look', p_npc_look), ('npc-poses', p_npc_poses), ('npc-pose-gallery', p_npc_pose_gallery), ('npc-new-seats', p_npc_new_seats), ('npc-testplay', p_npc_testplay), ('furniture-quality', p_furniture_quality), ('furniture-actions', p_furniture_actions), ('furniture-melonds', p_furniture_melonds), ('max-needs', p_max_needs), ('fix-stuck-leaving', p_fix_stuck_leaving), ('urbz-rom-only', p_urbz_rom_only), ('save-without-mod', p_save_without_mod), ('game-intact', p_game_intact)]
+          ('npc-seat-turns', p_npc_seat_turns), ('npc-look', p_npc_look), ('npc-poses', p_npc_poses), ('npc-pose-gallery', p_npc_pose_gallery), ('npc-new-seats', p_npc_new_seats), ('npc-testplay', p_npc_testplay), ('furniture-quality', p_furniture_quality), ('furniture-actions', p_furniture_actions), ('furniture-melonds', p_furniture_melonds), ('max-needs', p_max_needs), ('fix-stuck-leaving', p_fix_stuck_leaving), ('fix-trash', p_fix_trash), ('urbz-rom-only', p_urbz_rom_only), ('save-without-mod', p_save_without_mod), ('game-intact', p_game_intact)]
 
 
 def main(argv):

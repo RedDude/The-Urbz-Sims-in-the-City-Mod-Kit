@@ -10,7 +10,7 @@
 #define path_cancel GAME_FN(ADDR_path_cancel, void (*)(void *e))
 #define walked_out  GAME_FN(ADDR_npc_walked_out, void (*)(void *e))
 
-struct { u32 magic, ticks, let_out; } bug_fixes = { 0x58494642, 0, 0 };   /* 'BFIX' (tests read this) */
+struct { u32 magic, ticks, let_out, trash_back; } bug_fixes = { 0x58494642, 0, 0, 0 };   /* 'BFIX' (tests read this) */
 
 static u8 *world_first(void) { return *(u8 **)ADDR_entity_lists; }
 
@@ -62,9 +62,28 @@ void mod_on_area_enter(int area)
         leave_since[i] = 0;
 }
 
+/* ---- Fix 2: trash that stops coming back (proof fix-trash) ------------------------------------------------------
+   Piles of trash (collectible kind 0) appear from area records of type 16. Every pile you pick up adds 1 to
+   trash_picked (saved with the game), and once it is over 100 the game never makes trash again. But the Artsies'
+   "Recycle 100 piles of trash" only counts trash sold in a shop *after* they give you that challenge
+   (artsie_trash_sold, in shop_input). Trash picked up before then uses up the town's 101 piles, so the goal can't
+   be finished: players see the trash vanish for good, sooner the more of it they pick up. Here: until that sub-goal (mission 5, goal 2,
+   sub-goal 2) is done, trash_picked stays at 100 at most, so trash keeps coming; afterwards the game is as it was.
+   This also mends a save that already has the bug: the trash is back the next time you enter a place. */
+#define TRASH_GOAL_DONE (goal_row(5, 2)[3 + 2 * 2])
+
+static void keep_trash_coming(void)
+{
+    if (trash_picked > 100 && !TRASH_GOAL_DONE) {
+        trash_picked = 100;
+        bug_fixes.trash_back++;
+    }
+}
+
 void mod_on_tick(void)
 {
     u32 now = ++bug_fixes.ticks;
+    keep_trash_coming();                              /* every tick: a place loaded right after a pickup still has trash */
     if (now & 15)
         return;
     let_stuck_people_out(now);

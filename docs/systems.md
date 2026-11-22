@@ -251,6 +251,33 @@ Rendering verified pixel-identical to the emulator (EA logo, asset 10747).
 - Object upgrades: table 0x020C25BC, [category][4 levels] x 12 bytes (s16 price first);
   `buy_upgrade` (0x02018DAC) pays the price and refunds half the old level's.
 
+## Collectibles and the trash bug (2026-11-22, Ghidra 12.2 decompile; proof `fix-trash`)
+
+- Five collectibles lie around the streets: 0 Pile of Trash, 1 Aluminum Cans, 2 License Plate, 3 Nuclear Fuel Rods,
+  4 Three-Eyed Bog Frog (name string 210 + kind, description 215 + kind). You hold them in Pockets > Collectibles
+  (`collectible_count`, u8[5] at 0x0214125C, capped at 250) and sell them on the shop screen (`shop_input`).
+- **Where they come from:** area record type 16 `{u16 16, u16, s16 x, s16 y, u8 kind, u8 slot}` (`collectible_spawn`
+  0x0201DF70). Each slot (0-63, one per record in the whole city) rolls once a day, with `collectible_chance[kind]`
+  (60, 50, 40, 30, 20 %); bits at game_state+0xA18 (rolled today) and +0xA20 (there today) remember it, so
+  entering again the same day brings back the same ones. Picking one up clears its "there today" bit. Each new day
+  `collectible_day` (0x0201DF50, from `time_update`) clears both. 13 areas have type-16 records; Urbania Park (19)
+  has 10: trash in slots 0-3 and 5-7, a licence plate in 4, cans in 8 and 9.
+- **The bug** (seen in the emulator, original ROM, proof `fix-trash`): picking up a pile of trash
+  (`collectible_pick` 0x0201DC50) adds 1 to `trash_picked` (u8 at 0x02141B48, game_state+0xA28, kept in the save by
+  0x0201DE88). `collectible_spawn` makes no trash at all once it is over 100. The Artsies' goal "Clean up the
+  city! Recycle 100 piles of trash" (mission 5, goal 2, sub-goal 2) counts something else: trash *sold while that
+  sub-goal is shown* (`artsie_trash_sold`, u8 at 0x0214126A; at 100 `shop_input` marks it done). Trash picked up
+  before the Artsies give you the challenge still uses up the city's 101 piles, so the goal can no longer be
+  finished, and the trash is gone for good (it is in the save). Players remember it as the trash vanishing around
+  day 30 or 100; nothing in the code looks at the day (time_update's day 30/50/75/100 checks only show
+  messages). Seen: with `trash_picked` = 101 and every slot due today, Urbania Park reloads with the cans and
+  the plate but none of its 7 piles.
+- **The fix** (Bug Fixes mod): until that sub-goal is done, `trash_picked` is held at 100, so trash keeps coming;
+  after it, the game behaves as the original. Seen: same test, the count goes back to 100 and all 7 piles are
+  there; with the sub-goal marked done, the count stays at 101. A save that already has the bug gets its trash
+  back the next time you enter a place.
+- Not tested in play: picking up and selling real piles, and the Artsies' challenge itself (no save that far).
+
 ## Save file
 
 - 8 KB EEPROM. 0x0000: 0x20-byte header ("URBZ0010"), u16 at 0x1E makes the u16 sum 0.

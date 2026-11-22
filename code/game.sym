@@ -405,3 +405,13 @@ shop_sell          = 0x0209CC50   # int (): the shop screen's sell; lists 21/22:
 shop_input         = 0x0209BA50   # shop screen (state 17) input; a double-tap on a Pockets item skips lists 21/22 (0x0209BB0C/14)
 shop_sell_call     = 0x0209BB18   # BL shop_sell in shop_input
 pockets_use        = 0x0203DF08   # Pockets double-tap: use item (0x0203FA80) or place check -> carry mode (state 0x16)
+
+# --- collectibles: 0 Pile of Trash, 1 Aluminum Cans, 2 License Plate, 3 Nuclear Fuel Rods, 4 Three-Eyed Bog Frog
+#     (name string 210 + kind, description 215 + kind). docs/systems.md "Collectibles and the trash bug".
+collectible_spawn  = 0x0201DF70   # area record type 16 {u16 16, u16, s16 x, s16 y, u8 kind, u8 slot 0-63}: once a day per slot, chance collectible_chance[kind]; kind 0 never if trash_picked > 100
+collectible_pick   = 0x0201DC50   # the collectible's behaviour: picking it up adds 1 to objects_mgr+4+kind (0x0203CF68) and, for trash, trash_picked++
+collectible_day    = 0x0201DF50   # daily: clears the rolled/spawned-today bits (game_state+0xA18..0xA27)
+collectible_chance = 0x020C2820   # u8[5] percent: 60 50 40 30 20
+collectible_count  = 0x0214125C   # u8[5] how many you hold (objects_mgr+4), capped at 250
+trash_picked       = 0x02141B48   # u8 (game_state+0xA28): trash piles ever picked up; saved (0x0201DE88). Over 100: no trash spawns again
+artsie_trash_sold  = 0x0214126A   # u8 (game_state+0x14A): trash sold while goal (5,2) sub-goal 2 is shown; 100 = done (shop_input)
