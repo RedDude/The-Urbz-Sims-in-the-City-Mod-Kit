@@ -39,6 +39,7 @@ mods/*
 !mods/moving-crate/
 !mods/quick-start/
 !mods/walk-style/
+!mods/auto-interact/
 # The phone picture (not ours: made into phone_art.inc locally, never committed)
 mods/phone/phone-ts2.png
 mods/phone/code/phone_art.inc

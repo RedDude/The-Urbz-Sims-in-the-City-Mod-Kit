@@ -38,18 +38,19 @@ Savestates contain the game code: for code mods, start from --city, not an old s
 All commands accept --rtc YYYY-MM-DDTHH:MM to set the DS clock (default
 2026-01-05T12:00), so runs are repeatable and time-of-day can be tested.
 
-Default rom: game/Urbz DX.nds. Evidence (screenshots + report.txt) goes to
+Default rom: build/Urbz DX.nds. Evidence (screenshots + report.txt) goes to
 verify/evidence/<time>-<command>/ and is never deleted automatically.
 
 Input scripts are JSON lists of steps:
   ["wait", frames]  ["press", "A", holdFrames?]  ["touch", x, y, holdFrames?]  ["shot", "name"]  ["poke", "ADDR=HEX"]
+  ["hold", "DOWN"] / ["release", "DOWN"] (a key stays down in between, e.g. for shots mid-walk)
 Keys: A B X Y L R START SELECT UP DOWN LEFT RIGHT
 """
 import json, os, struct, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 KIT = os.path.dirname(HERE)
-DEFAULT_ROM = os.path.join(KIT, 'game', 'Urbz DX.nds')
+DEFAULT_ROM = os.path.join(KIT, 'build', 'Urbz DX.nds')
 DEFAULT_REF = os.path.join(KIT, 'project', 'base.nds')
 
 # Boot -> legal screens -> EA -> Maxis -> title -> Create-a-Bod.
@@ -80,6 +81,10 @@ def _emu(rom, rtc=None, movie_path=None, sav=None):
     import desmume.emulator as E
     from datetime import datetime
     emu = E.DeSmuME()
+    if os.name == 'nt':           # Windows py-desmume: fix the save type (EEPROM 64 kbit, 8 KB) so .sav loading
+        from ctypes import c_int  # works (_backup_via_state) and every savestate has the same backup size
+        emu.lib.desmume_set_savetype.argtypes = [c_int]
+        emu.lib.desmume_set_savetype(2)
     emu.open(rom)
     emu.volume_set(0)
     t = datetime.fromisoformat(rtc or DEFAULT_RTC)
@@ -88,7 +93,51 @@ def _emu(rom, rtc=None, movie_path=None, sav=None):
     if sav:                       # raw cartridge save (.sav), loaded after the blank start
         if not emu.backup.import_file(sav):
             raise RuntimeError('could not load save file ' + sav)
+        if not _backup_is(emu, sav):          # Windows py-desmume: see _backup_via_state
+            _backup_via_state(emu, sav)
     return emu
+
+
+def _backup_is(emu, sav):
+    import tempfile
+    fd, tmp = tempfile.mkstemp(suffix='.sav')
+    os.close(fd)
+    try:
+        emu.backup.export_file(tmp)
+        want = open(sav, 'rb').read()
+        return open(tmp, 'rb').read()[:len(want)] == want
+    finally:
+        os.remove(tmp)
+
+
+def _backup_via_state(emu, sav):
+    """The Windows py-desmume build (0.0.9) accepts import_file but leaves the EEPROM blank. Work-around,
+    before the first frame (the game reads the save at boot): with the save type fixed at 8 KB, save a
+    state, put the .sav bytes into its backup chunk (zlib after a 0x20-byte header; the blank 8 KB of
+    0xFF follow a u32 0x2000) and load it back."""
+    import tempfile, zlib
+    want = open(sav, 'rb').read()
+    fd, tmp = tempfile.mkstemp(suffix='.dst')
+    os.close(fd)
+    try:
+        emu.savestate.save_file(tmp)
+        d = open(tmp, 'rb').read()
+        u = bytearray(zlib.decompress(d[0x20:]))
+        blank = b'\xff' * len(want)
+        hits = [j for j in range(4, len(u) - len(want)) if struct.unpack_from('<I', u, j - 4)[0] == len(want)
+                and u[j:j + len(want)] == blank]
+        if len(hits) != 1:
+            raise RuntimeError('could not load save file %s (backup chunk not found)' % sav)
+        u[hits[0]:hits[0] + len(want)] = want
+        c = zlib.compress(bytes(u))
+        h = bytearray(d[:0x20])
+        struct.pack_into('<II', h, 0x18, len(u), len(c))
+        open(tmp, 'wb').write(bytes(h) + c)
+        emu.savestate.load_file(tmp)
+    finally:
+        os.remove(tmp)
+    if not _backup_is(emu, sav):
+        raise RuntimeError('could not load save file ' + sav)
 
 
 FRAME = [0]      # frames run so far in this child (for hook logs)
@@ -141,6 +190,9 @@ def _run_script(emu, script, outdir, tag, loads=None, on_shot=None):
             step(int(s[2]) if len(s) > 2 else 6)
             emu.input.keypad_rm_key(k)
             step(10)
+        elif op in ('hold', 'release'):        # ["hold", "DOWN"] ... ["release", "DOWN"]: shots while a key is down
+            k = keymask(keys[s[1].upper()])
+            (emu.input.keypad_add_key if op == 'hold' else emu.input.keypad_rm_key)(k)
         elif op == 'touch':
             emu.input.touch_set_pos(int(s[1]), int(s[2]))
             step(int(s[3]) if len(s) > 3 else 6)
@@ -587,9 +639,18 @@ def city_state(rom, rtc=None, save=None):
     os.makedirs(STATE_CACHE, exist_ok=True)
     # one at a time per ROM: runs started together (soaks in parallel) shared the evidence folder of that second
     # and loaded each other's saves
-    import fcntl
     lock = open(os.path.join(STATE_CACHE, _sha1(rom)[:12] + '.lock'), 'w')
-    fcntl.flock(lock, fcntl.LOCK_EX)
+    try:
+        import fcntl
+        fcntl.flock(lock, fcntl.LOCK_EX)
+    except ImportError:                            # Windows: no fcntl; use msvcrt (blocks until free)
+        import msvcrt
+        while True:
+            try:
+                msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+                break
+            except OSError:
+                pass
     if os.path.exists(path):
         lock.close()
         return path

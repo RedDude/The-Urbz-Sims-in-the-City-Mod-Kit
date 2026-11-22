@@ -89,6 +89,151 @@ Players choose mods on the PC (manager) and switch them on/off in the game (Opti
   pick_probe.py, pet_probe.py; `game-intact` checks a week of shelves. 62/62 proofs.
 
 ## Next
+- **2026-11-18 (Windows session):** `save set --gender`; the owner's build/Urbz DX.sav switched female -> male
+  (backup `build/Urbz DX.sav.bak-female`, proven in DeSmuME). New mod `mods/any-romance` (Flirt/Kiss with
+  either sex; docs/systems.md "Chats"): shown working, no proof in tests/proofs.py yet, vanilla comparison
+  not finished. Harness now loads `.sav` on Windows. Next asked for: a phone mod (call or invite known
+  people; Rep Group screen remembers the last person).
+- **2026-11-19, phone touch screen:** Ghidra 12.2 is at `C:\Tools\ghidra_12.2_PUBLIC` on the Windows PC (the
+  decompile in `C:\proj\gh` is another game's). `mods/phone` v0.2: Call Friend / Invite open the Mixer's
+  touch screen (state 31/37, mode 7) with faces in its 8 squares, the name and place in the panel, the green
+  button calls (docs/systems.md "Object touch screens"; proof `phone-screen`). Owner chose the mixer layout
+  (2026-11-19). Same day: the owner's phone picture (mods/phone/phone-ts2.png -> `mods/phone/art/make_art.py`
+  -> code/phone_art.inc) replaces the blender, and an arrow pages through more than 8 people (proof covers 11).
+  The owner's melonDS savestate `build/Urbz DX.ml1` knows 10 people (main RAM at file offset 0x24; the
+  `.sav` next to it has no saved game). Open: melonDS check, Call Services still uses the game's box. Ask
+  the owner where phone-ts2.png comes from before committing it (ts2 = The Sims 2? then it is game art).
+- **2026-11-19, phone freeze in melonDS (fixed):** Call Friend froze the owner's game in melonDS (black
+  screens) at Urbania Park's pay phone. Cause: `obj_screen_buttons` writes to buttons 12/13, empty in mode 7 =
+  a write to 0x0C (DeSmuME ignores it, melonDS aborts); docs/systems.md "Object touch screens". Fix in
+  `mods/phone` (spare buttons); proof `phone-screen` now fails on any touch of 0x08-0x17. Old ROM kept as
+  `build/Urbz DX.nds.bak-phone-freeze`. Not yet confirmed by the owner in melonDS with the new ROM.
+  Windows tip: a melonDS savestate (`.mlN`) holds main RAM at 0x24 and the ARM9 registers after "ARM9";
+  loading one also rewrites the `.sav` with the state's copy (back the `.sav` up first).
+  The owner then confirmed it works in melonDS and asked for: D-pad / A / B on the phone screen and a double
+  touch to call (done, proven); a negative relationship with the last person called (proven safe). Asked
+  next: a smaller name panel and a third row of faces (12 a page): not started. Then the owner asked for the
+  Rep Group's relationship bar instead of the place: done (docs/systems.md "The Rep Group's relationship
+  bar"; seen in DeSmuME at 5, 20, 100; proof `phone-screen` checks it is made and freed). Not yet seen in
+  melonDS. Decompile on Windows: research/README + `research/ghidra/DecompFromMap.java <dir>` (arm9 section 0 + funcs.txt "addr thumb" lines in <dir>,
+  functions from code/functions.json, `try` around the Thumb context change).
+- **2026-11-20, Beads on the phone:** the owner first asked for the Collectibles screen's X-shaped frame on the
+  faces of people who gave you their Beads (phone, then Rep Group), then changed it to: the red Beads picture
+  under the relationship bar. Done in `mods/phone` 0.4 (proof `phone-screen` checks it; docs/systems.md "Beads
+  given"). `bead_given` / `rel_flags` named in code/game.sym (read from the code, owner's save agrees; the gift
+  itself not yet seen in a run). Old ROM kept as `build/Urbz DX.nds.bak-phone-beads`. Not yet seen in melonDS.
+  Rep Group screen: not started (it is the game's own screen, enter 0x0207C264).
+  Same day: the selection frame now follows (UI sprite state 0, docs/systems.md); the green button stays
+  hidden and the page arrows sit on the panel (right = next, left = back, only with more than 8 people);
+  calls by two touches or A. Proof `phone-screen` checks the frame's place. Not yet seen in melonDS.
+- **2026-11-19, phone: first face selected + the player on the phone** (owner asked): the first face is now
+  really selected when nobody was called yet; back in the city the player picks up the phone (the game's own
+  animation, 0x51 home / 0x52 pay phone), holds it during the answer and hangs up (docs/systems.md "The
+  telephone"). Proof `phone-screen` checks both (RAM: the home phone is out of the camera's view, so no
+  picture of it yet). **Kit fix:** the mod-switch `wrap` trampoline (`_switch_wrap_trampoline`,
+  kit/urbz_code.py) loaded the switch byte into r0, so a wrapped function got 1 as its first argument; it now
+  uses r12 (test_code_encodings updated). Not yet seen in melonDS.
+- **2026-11-19, Walk Style:** new mod `mods/walk-style` (the owner asked for it: player only, chosen in the game
+  on the Mods page). Options > Mods > Walk Style, R / L: Game's own, Normal 0x0A, Streetie 0x0E, Nerdie 0x0C,
+  Richie 0x0D, Artsie 0x0B (the game's Rep group walks; docs/systems.md "The player's walk"). The owner then asked
+  for the S goals' group pictures as buttons: core pages now take up to 4 pictures (`mod_page_t.icon`, `tapped`),
+  and pages of 5 lines or fewer get R / L in `keys_down`. Harness: `hold` / `release` script steps. Proof `walk-style`.
+  Not checked: the female body, melonDS, and what sim_flags bit 0x20 means.
+  Later the same day the owner asked for: (1) the 4 group pictures as buttons, with the goals' selection frame on
+  the chosen one and only the "Walk: ..." line (done, proof walk-style passes); (2) **to do next: move the 4
+  buttons higher on the page** (`ICON_Y` in mods/walk-style/code/main.c, now 124; labels sit 18 px below);
+  (3) **the hair vanishing on the Nerdie walk, diagonal towards the camera** (owner's Sim: male, hair style 3):
+  paused by the owner, findings in docs/systems.md "Hair on the group walks (OPEN)".
+  The full proof run after the core changes: the first one (51/81) was spoiled by building while it ran; one was
+  started again (scratchpad proofs3.log) - check its result or run `python3 tests/proofs.py` again, alone.
+- **2026-11-20, Friendly Topics:** new mod `mods/friendly-topics` (the owner asked: "at least one positive talk
+  topic each time"; re-dealing with FRIENDLY STUFF was a pain). Both calls to `social_pick_options` go to ours;
+  if no drawn topic is liked (reply table + Rep bonus > 0), the last random one becomes a random liked plain topic
+  (never Flirt/Hug/Kiss). Facts: docs/systems.md "Chats" (Replies). Proof `friendly-topics` (12 deals with Lottie
+  Cash, mod stepped in 2x). Probes: research/chat/. Not checked: choosing the added topic, melonDS.
+- **2026-11-20, Quick Start:** new mod `mods/quick-start` (owner asked: skip the logos and the main menu and load
+  a slot, configurable). State 3's update (the logos) is ours: once the logos' fade-in ends it runs `game_reset`
+  (what the title's top screen does) and Load-an-Urb's confirm steps. City at frame 69 from power-on. Choice on
+  its page (R / L: Last saved, Slot 1, Slot 2, Title screen), kept in the save; `mod_on_boot` reads both slots
+  from the cartridge (the newest save's choice; each save gets a rising number). Hold SELECT at power-on for the
+  title. Facts: docs/systems.md "Power-on: logos to the city" (the frame loop's phases, the fade level, why
+  `game_reset` and no music pause). Proof `quick-start`. Not in `mods.json` yet (the owner chooses). Not checked:
+  melonDS, the music after a quick start.
+- **2026-11-20, Cellphone:** new mod `mods/cellphone` (owner asked: a Cellphone button in the middle of Urb
+  Info, placeholder icon, the Sim uses a phone from anywhere). Urb Info is menu **0** (docs said 4; fixed in
+  docs/systems.md "Bottom-screen menus"); the mod swaps in a 5-button copy and wraps `menu_dispatch`. It
+  needs `mods/phone` (0.5), which now has `phone_open_anywhere` (its own list, `return_spot` from the player)
+  published as `phone_api` (magic 'PONE'); the cellphone finds the Phone row by name hash and scans near its
+  code. Call Friend only. Placeholder icon = Urb Info frame 1 (the red X). Proof `cellphone`; `phone-screen`
+  still passes. Not checked: melonDS; a real icon; Invite / Call Services from the cellphone.
+- **2026-11-20, Cellphone 0.2 (Phone 0.6):** owner asked: the Cellphone should open the phone's options like
+  using a phone object, not go straight to Call Friend. The Phone mod's `phone_api` is now version 2 with
+  `open_menu`: pick up, the game's own question box (`phone_open`: Call Services / Call Friend / Invite at home,
+  only Call Friend away), then Call Services' box and order, or the faces screen (docs/systems.md "The
+  telephone"). Proof `cellphone` now checks the box (top state 2, player 0x51); `phone-screen` still passes.
+  Seen at home (apartment save): three choices, Fire, the fireman came. Not checked: melonDS, Invite from the
+  cellphone, Repair Man / Maid, where the service's price is taken.
+  Same day, owner: a refused Cellphone (Phone mod off, or busy) closed Urb Info. Now the mod takes over the
+  call of `menu_dispatch` (`menu_dispatch_call`) instead of wrapping it and skips it on a refusal: a buzz,
+  Urb Info stays open (proof `cellphone` checks the icon in the screenshot). Not checked: the other 4 buttons
+  after the change (they go through the same call to the game's `menu_dispatch`).
+  Then (owner: "Urb Info still vanishes"): the successful touch also skipped closing now, so Urb Info stays on
+  the bottom screen while the phone's box is up, as with a phone object (it had gone empty). Proof checks it.
+  Later (owner: "after Cellphone, Urb Info's buttons vanish and any other tab crashes"): not reproduced with the
+  current build/Urbz DX.nds (03:22) in DeSmuME, from the city save, the apartment save and the owner's own .sav:
+  cancel, call, invite, tabs during and after the box, Jobs: all fine. All of the owner's melonDS savestates
+  (.ml1-.ml8) are older than that ROM; .ml4 (02:35) holds the OLD cellphone code (menu_dispatch wrapped, which
+  closed Urb Info). A savestate keeps the old code but the game then reads the new ROM's files: the likely cause.
+  Told the owner to boot the ROM and load the in-game save instead. Not confirmed by the owner yet.
+- **2026-11-20, Phone 0.7 (owner: the answer came late after picking someone, and the Sim could walk off in
+  between, with strange results):** measured in DeSmuME: the answer came ~144 frames after the second touch
+  (16 ticks of waiting, then the whole pick-up). Now: 2 ticks, and the call is made 12 ticks into the pick-up
+  (answer at ~70 frames); the player is held in state 0 (as pets-kit does) from the city's return until the
+  phone is put down, then given back 0x10. Proof `cellphone` checks: answer up within 100 frames with the
+  D-pad held all that time, the Sim on the same spot; after hanging up, state 0x10 and the D-pad walks.
+  `phone-screen` still passes. Not checked: melonDS; the pay phone (its hang-up waits for the animation's end,
+  held all that time).
+- **2026-11-20, Moving Crate:** new mod `mods/moving-crate` (owner asked: the crate after moving house
+  undismissable, movable, and able to take things). Always on. Menu: Open the Crate / Move the Crate (text 3624
+  renamed from Return); Move puts object 230 into Pockets and the game's own carry mode puts it down (place check
+  stub lets 230 through); the area-record crate is made whenever it isn't in Pockets or placed; the crate screen's
+  Pockets side now puts things in (the game already had the code, the input skipped list 21; full crate refused).
+  Icon: the Soap Box's (model 97). Facts: docs/systems.md "The moving crate"; names in code/game.sym. Proof
+  `moving-crate` (put in, full, take out, Move, place, menu, save + load, rent the Large Brownstone). Not checked:
+  melonDS, the crate in a home's second room, the other homes. A no-icon object (135) in a shop-screen list
+  leaves the touch screen black (seen on the original ROM; not looked into).
+- **2026-11-20, Phone 0.8, Pockets' look** (owner asked: the phone's screen should look like Pockets, keeping
+  everything it does; chose "keep the current screen, change its look" over opening the real Pockets screen,
+  so the city still waits behind it and the top keeps the help text). Still state 31 mode 7; its enter now
+  loads Pockets' panel (0x288D), the city menu's frame (0x286E) and text colours (0x286D) and lays the squares
+  out 6 x 2 with Pockets' tiles: **12 faces a page** (the most the sprite palette rows allow; the owner had
+  asked for 12 earlier). Name, bar and Beads in the text box, the page ("1/2") in the small box, page arrows
+  in the bottom corners, the red arrow in the middle. The faces' UI sprite slots (0xB0-0xBB) are moved while
+  open and put back after. The phone picture over the blender is gone (no place for it; `art/make_art.py`
+  removed, the owner's local phone-ts2.png / phone_art.inc are no longer used). Facts: docs/systems.md "The
+  Pockets screen, and the phone with its look"; new names in code/game.sym. Proofs `phone-screen` (now 14
+  people: 12 + 2; checks the BG controls, the panel map and the slots) and `cellphone` pass. Not checked:
+  melonDS; the Mixer / Oven / carving screens after using the phone (slots proven put back in RAM only).
+  Same day, the owner's melonDS picture: Pockets' panel in wrong colours (grey-green). Cause: the panel and
+  frame bring no colours; Pockets uses the city menu's (from its BG2 picture 0x2891), and the Mixer's enter had
+  put its own there. Fixed by loading 0x2891 as the city menu does (proof now compares all 16 BG colour rows
+  with the real Pockets'). The owner then asked for a 7th column and the arrows beside the name (their mock-up),
+  and allowed the Beads in another colour: 7 x 2 = **14 faces a page**, the Beads and the selection frame share
+  the bar's palette row (Beads grey, frame outline darker). Proofs `phone-screen` (16 people: 14 + 2) and
+  `cellphone` pass. Not seen in melonDS yet.
+- **2026-11-22, Better Chat:** new mod `mods/better-chat` (owner: "better conversation ux"). "!" (What's Up?) and the red "?" (The 411)
+  move onto the up / down arrow buttons so there are always 3 normal topics; the arrows come back for replies; a tap selects,
+  a second tap on the same one within 20 chat frames confirms (also A and the green tick); D-pad UP from the first row goes
+  to the "!" / "?", LEFT / RIGHT between them (the focused one blinks); the first topic is selected after a reply (and at
+  open). Hooks: the two `bl chat_icons` calls (so it runs after Friendly Topics), the state-0 touch and key calls, a `wrap`
+  on `chat_update`. Facts: docs/systems.md "The chat screen". Proof `better-chat` (forced codes on Lottie). Not checked: the
+  real Kris case in a run (savestate `build/Urbz DX.ds9` is the old ROM), melonDS. One tap on a topic no longer confirms.
+- **2026-11-22, Better Chat 0.2** (owner: "! and ? are in the wrong screen", outline white, tap anywhere in a reply,
+  option for a 4th topic): our sprites are now always made in the bottom screen's sprite list (`screen_index` 1 around
+  `sprite_new`); icons use the topic icons' colour set 0x3B and rows 4-6 (the tick's icon used to share the outline's
+  row 7); a new touch in a reply (states 3, 5-7) anywhere but the arrows = the green tick; option "4 topics" (Mods page,
+  R / L, 1 save byte): FRIENDLY STUFF on the tick, 4 normal topics. Proofs `better-chat` and new `better-chat-four`
+  pass. Not checked: the option on the Mods page and in a save, melonDS.
 - **Jonathan:** set up `sources.json`, run the gallery, pick furniture (and pets); test on the Thor.
 - Pet rough edges done 2026-10-07 (draw order, plain message boxes, saves without the mod, A near a townsperson: docs/dev/plan-phase10.md).
 - Pets test-play fixes 2026-10-09 (Jonathan: "perfect pets and npc-life", pets first; he chose all 9 fixes, a treat a

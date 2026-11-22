@@ -8,8 +8,7 @@
 
 The window shows every mod in mods/ with a tick box. Ticked mods are built into the ROM in
 the order shown (later mods win where two change the same thing); Up/Down change the order.
-Build runs urbz_build.py and shows its output; Play opens the built ROM in your emulator;
-"Game folder" shows game/, which holds just the ROM, your save and a note on them.
+Build runs urbz_build.py and shows its output; Play opens the built ROM in your emulator.
 "Add mod..." installs a mod zip. "Settings..." picks your Urbz ROM (and unpacks it), your
 emulator and, optionally, your other Sims games (it writes emulator.txt and sources.json for
 you; the first time, it opens by itself). "Tune..." changes a mod's prices, shops, names and
@@ -24,7 +23,7 @@ import json, os, shutil, subprocess, sys, zipfile
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # the repo (this file is in kit/)
 sys.path.insert(0, os.path.join(KIT, 'kit'))
 MODS = os.path.join(KIT, 'mods')
-OUT_ROM = os.path.join(KIT, 'game', 'Urbz DX.nds')      # the game folder: just the ROM, its save, a note
+OUT_ROM = os.path.join(KIT, 'build', 'Urbz DX.nds')
 EMULATOR_TXT = os.path.join(KIT, 'emulator.txt')
 
 PROJECT = os.path.join(KIT, 'project')
@@ -33,7 +32,6 @@ URBZ_SHA1 = '3c01cc5cf3491b5d0ab626ccfb5bcad370662f2f'       # The Urbz: Sims in
 OTHER_GAMES = [('aptpets', 'The Sims 2: Apartment Pets'), ('sims3', 'The Sims 3'),
                ('castaway', 'The Sims 2: Castaway'), ('sims2', 'The Sims 2')]
 DEFAULT_MODS = ['npc-life', 'pets', 'more-furniture', 'bug-fixes']    # ticked on a fresh kit
-SUPPORT_URL = 'https://buymeacoffee.com/romhackz'
 
 # Never installed from a zip: game files and emulator files.
 BLOCKED_EXT = ('.nds', '.sav', '.dsv', '.dst', '.dsm', '.srm', '.zip', '.7z', '.exe', '.dll', '.bat', '.cmd')
@@ -242,23 +240,6 @@ def emulator_path():
         return None
     p = open(EMULATOR_TXT, encoding='utf-8-sig').readline().strip().strip('"')
     return p or None
-
-
-def open_rom_folder():
-    """Show the game folder (the built ROM, its save, a note) in Explorer / Finder / the file manager; the ROM
-    itself is selected when it exists."""
-    folder = os.path.dirname(OUT_ROM)
-    os.makedirs(folder, exist_ok=True)
-    if sys.platform.startswith('win'):
-        if os.path.exists(OUT_ROM):
-            subprocess.Popen('explorer /select,"%s"' % os.path.normpath(OUT_ROM))   # one string, as Explorer wants it
-        else:
-            os.startfile(folder)
-    elif sys.platform == 'darwin':
-        subprocess.Popen(['open', '-R', OUT_ROM] if os.path.exists(OUT_ROM) else ['open', folder])
-    else:
-        subprocess.Popen(['xdg-open', folder])
-    return folder
 
 
 def play():
@@ -626,7 +607,7 @@ def run_window():
 
     root = tk.Tk()
     root.title('Urbz DX mod manager')
-    root.geometry('1060x580')
+    root.geometry('960x580')
     root.minsize(640, 420)
     state = {'mods': [], 'busy': False}
 
@@ -658,15 +639,7 @@ def run_window():
     log.grid(row=3, column=0, columnspan=2, sticky='nsew')
     top.rowconfigure(3, weight=1)
     status = ttk.Label(top, text='')
-    status.grid(row=4, column=0, sticky='w')
-    coffee = tk.Label(top, text='Enjoying Urbz DX? Buy me a coffee', fg='#0b62d6', cursor='hand2',
-                      font=('TkDefaultFont', 9, 'underline'))
-    coffee.grid(row=4, column=1, sticky='e')
-
-    def open_support(_=None):
-        import webbrowser
-        webbrowser.open(SUPPORT_URL)
-    coffee.bind('<Button-1>', open_support)
+    status.grid(row=4, column=0, columnspan=2, sticky='w')
 
     def say(text):
         log.insert('end', text + '\n')
@@ -781,12 +754,6 @@ def run_window():
         except ManagerError as e:
             messagebox.showinfo('Play', str(e))
 
-    def do_open_folder():
-        try:
-            say('opened %s' % open_rom_folder())
-        except OSError as e:
-            messagebox.showerror('Game folder', str(e))
-
     def do_tune():
         name = selected()
         if not name:
@@ -803,7 +770,7 @@ def run_window():
                       ('Tune...', do_tune), ('Add mod...', add_mod)):
         ttk.Button(buttons, text=text, command=cmd).pack(side='left', padx=2)
     for text, cmd in (('Build && Play', lambda: run_build(True)), ('Play', do_play), ('Build', run_build),
-                      ('Game folder', do_open_folder), ('Settings...', do_settings)):
+                      ('Settings...', do_settings)):
         ttk.Button(buttons, text=text.replace('&&', '&'), command=cmd).pack(side='right', padx=2)
 
     tree.bind('<<TreeviewSelect>>', show_details)

@@ -320,6 +320,7 @@ phone_open         = 0x020A4D94   # builds phone_list (known people by name), op
 people_known       = 0x0207AB3C   # (social_book, s8 *out, max, min, max_rel [stack]) -> count: ids 31-66 met, min <= relationship <= max_rel (phone_open: 36, -100, 100)
 social_book        = 0x0214114E   # what people_known reads (relationships = +6)
 phone_names_page   = 0x020A4B7C   # 4 names from phone_page
+phone_names_box    = 0x020A4C8C   # (): the box of 4 names from phone_page, item 0 "next" (top screen state 2); phone_activity states 0x1C / 0x1D read dialog_result
 phone_call         = 0x020A495C   # (list index, use record): where they'll be, +1 relationship, face, dialog_open
 phone_invite       = 0x020A477C   # (list index, use record): chance rel/2+10, npc_visit_home, dialog_open
 phone_list         = 0x02148F48   # s8[36] person ids (31-66; name = string 481 + id), -1 = end
@@ -405,3 +406,41 @@ shop_sell          = 0x0209CC50   # int (): the shop screen's sell; lists 21/22:
 shop_input         = 0x0209BA50   # shop screen (state 17) input; a double-tap on a Pockets item skips lists 21/22 (0x0209BB0C/14)
 shop_sell_call     = 0x0209BB18   # BL shop_sell in shop_input
 pockets_use        = 0x0203DF08   # Pockets double-tap: use item (0x0203FA80) or place check -> carry mode (state 0x16)
+pockets_enter      = 0x0204036C   # bottom state 13 (Pockets; mode 8 Collectibles) enter: panel 0x288D on BG1, text 0x286D
+pockets_update     = 0x02040244   # state 13 update
+pockets_leave      = 0x020401C4   # state 13 leave
+city_menu_enter    = 0x0207121C   # bottom state 0x22 enter: the frame 0x286E on BG3 (BG control 0x1F11)
+layers_off         = 0x02018494   # (0): the current screen's BG layers off
+display_on         = 0x02018410   # (bits): turn on (0x1000 = sprites)
+layer_setup        = 0x020185E8   # (layer, BG control): set a layer up and turn it on
+layer_clear        = 0x020183EC   # (layer, 0): clear a layer's map
+bg_load            = 0x02017CF4   # (layer, picture, palette row, 0, 0, 0): a picture's tiles, map and palette onto a layer
+pal_load           = 0x02017990   # (palette, row): a 16-colour palette into a BG palette row
+text_layer         = 0x02034884   # (BG control): text_draw draws on the layer with this control
+
+# --- the object menu (docs/systems.md "The player using an object")
+object_menu_build  = 0x02067760   # (player): fills the choices (u8 activity[7] at entity+0x132: the object's, then Put in Pocket 0x2C and Move 0x25 at home) and opens the question box; returns 0 when there are none
+object_menu_open_call = 0x02067A10 # in object_menu_build: BL set_state_here(2) wrapper (0x0204E038) that opens the box; the player (state 0xF) reads dialog_result (0-based index into entity+0x132) one tick after it closes (0x020675F4)
+object_menu_result = 0x020675F4   # (player, state 0xF action 0x38): dialog_result -> Put in Pocket / Move / the object's start(node, player, activity); 0x7FFFFFFF = cancelled
+
+# --- the chat's touch screen (docs/systems.md "The chat screen"; mod better-chat)
+ui_mode            = 0x0204E0AC   # int (): the running screen's state; 0x24 = a chat
+chat_touch         = 0x0208B280   # int (): touched part (0-3 topic rows, 4 up arrow, 5 down arrow, 6 green tick, 7 back; -1 none); hit rectangles at 0x02119F54
+chat_keys          = 0x0208B0A0   # int (): D-pad moves the selected row (dlg+0x78), A with a row selected returns 1
+chat_touch_call    = 0x02090984   # state 1 (the topic list): BL chat_touch
+chat_keys_call     = 0x020909F8   # state 1: BL chat_keys
+chat_touch_call3   = 0x02090E5C   # state 3 (a reply): BL chat_touch; 6 (tick) or 7 (back) goes on
+chat_touch_call5   = 0x0209111C   # states 5-7 (a reply / the quest and gift boxes): BL chat_touch; 6 (tick) or A goes on
+chat_icons         = 0x0208EF78   # (): sets the 4 topic icons from social_options
+chat_icons_call    = 0x0208E3DC   # a chat opens: BL chat_icons (after social_pick_options)
+chat_icons_call2   = 0x0208E068   # FRIENDLY STUFF deals new choices: BL chat_icons
+sprite_anim        = 0x02001DC0   # (sprite, n): sprite animation n (a topic row: 0 normal, 1 selected, 2 pressed)
+sprite_reload      = 0x0204E79C   # (sprite): redraw after its frame (+0xA) changed
+sprite_palette     = 0x02000E54   # (sprite, row): sprite palette row (+0x105)
+chat_sprites       = 0x02142014   # u32 [..]: +0x50 green tick, +0x54 up arrow, +0x58 down arrow, +0x5C back, +0x60..0x6C topic rows, +0x70..0x7C topic icons (frame 0x19C + topic code)
+dlg_ui             = 0x027C0000   # +4 buffer index n; per buffer (n * 0x8C): +0x74 mode (4 = special), +0x78 selected row (-1 none), +0x84 state (1 = the topic list)
+chat_update        = 0x0209092C   # the chat screen's state machine (dlg+0x84: 0 topic list, 1 FRIENDLY STUFF's sub-menu, 5 a reply ...)
+sprite_new         = 0x0204EBF4   # (id, frame, palette row 0-15, priority 0-3) -> sprite: id sets the start place (table 0x020CA88C), flags 0x200019 (shown); taken from the pool of screen_index (0x02006264: 0x02122300 + screen * 0x210); the pool is reset by the chat's screen init
+sprite_place       = 0x02001DAC   # (sprite, x << 16, y << 16)
+chat_init          = 0x0208B548   # the chat screen's init (resets the sprite pool, builds the buttons: 0x0208B314)
+obj_palette_b      = 0x05000600   # the bottom screen's sprite palette (16 rows x 16 colours; chat: 0 tick, 1-2 arrows, 3 back, 9-12 the topic icons)

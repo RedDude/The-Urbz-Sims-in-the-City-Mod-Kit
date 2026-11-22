@@ -451,6 +451,15 @@ From the decompile (Ghidra 11, research/README.md) and emulator runs; proof `npc
   ask `object_use_continue` (0x020691D0) whether to go on (the need full and its timer out = stand up).
   Copies (`like`) and imported furniture work the same way as their originals (proofs furniture-quality,
   furniture-actions; the more-furniture pieces checked one by one).
+- **The object's question box (2026-11-22, proof `auto-interact`, `mods/auto-interact`):** the list lives on the
+  **object's** entity, not the player's: `FUN_02067a70(object entity, player)` stores the player at +0x120, the node at
+  +0x11C; `object_menu_build` 0x02067760 fills u8 choice[7] at object+0x132 (zero-ended), adds Put in Pocket 0x2C and
+  Move 0x25 at home (not for objects 0xC7 0xE6 0xF1 0xD3 0xEE 0x82 0x74), copies their texts to `dialog_text` and
+  opens the box with BL 0x0204E038 (= `set_state_here(2, 0, 0)`) at 0x02067A10, then sets the object's state 0xF. In state
+  0xF action 0 becomes 0x38; at 0x38 `object_menu_result` 0x020675F4 reads `dialog_result` (0-based index into
+  the list; 0x7FFFFFFF = cancelled). Writing 0 there and not opening the box starts the first choice
+  as if it had been touched (the pay phone: no box, the Sim walks to it and pays). The pointed-at pointer
+  0x021473FC may hold the node or the entity (+0x11C/+0x24 point at each other).
 - **Furniture quality and new actions (2026-10-09):** `objects.json` `"quality"` writes the class row's byte
   +0x23 (the multiplier index; proof furniture-quality: x2.03 for 5 vs 1). `"actions"` get activity numbers
   120+ in a moved activity table (3 words point at it: 0x02008BEC, 0x02067A48, 0x02067A4C; the game has
@@ -501,6 +510,49 @@ From the decompile (Ghidra 11, research/README.md) and emulator runs; proof `npc
   0x78 0x87 0x8C 0x8D 0xA6. 0x6F/0x70 lie on a sofa (nap), 0x71 get up from it. 0x82/0x83 hold a sheet of paper
   in front of the chest, standing. **There is no seated reading animation**, so "Read a Book" (more-furniture
   430) keeps the seated loop; a real one would need new art.
+
+## The player's walk (2026-11-19, mods/walk-style, proof `walk-style`)
+- The player has five walks: **0x0A** (the normal one) and one per Rep group: **0x0E Streeties, 0x0C Nerdies,
+  0x0D Richies, 0x0B Artsies** (groups 0-3, names strings 829-832; members: table 0x020F6F34, 4 x 8 ids,
+  `FUN_0207CCC0`). Proven: each played while walking and photographed (build/proofs/walk-style-walks.png:
+  Streetie hands in pockets, Nerdie hunched, Richie upright, Artsie arms out), on the male body; the female
+  body is not checked yet.
+- `walk_pick` (0x02037860) is asked for every player animation (player_play_anim's call at 0x02037930, and the
+  player's set-up at 0x020095A4 asks for 10). For 10 it returns the group's walk when `sim_flags[input_state+4]`
+  bit 0x20 is set and `player_walk_busy(0)` (0x020377DC) is 0; the group is `rep_groups`+0x14 (0x02141254,
+  4 = none). From the decompile only: what bit 0x20 means (when the original game shows a group walk) is not known.
+- Walk Style answers both calls: "Game's own" keeps the game's answer, the others give their walk whenever the
+  game asked for 10 and `player_walk_busy(0)` is 0. Proven with the city save (no group walk there: the game says
+  0x0A): r0 after the call = 0A 0A 0E 0C 0D 0B for the six choices.
+- Info pages that fit (5 lines or fewer) get R / L in `mod_page_t.keys_down` (core, 2026-11-19); the page is drawn
+  again when its text changes.
+- **Hair on the group walks (OPEN, 2026-11-19).** The owner saw the hair vanish on the Nerdie walk going
+  diagonally towards the camera; their save (build/Urbz DX.sav) is male, hair style 3 (look byte 2 = 2).
+  Found so far: hair art per walk = `city_hair_tables`[gender][style] -> anim table -> 5 view records (male style 3,
+  Nerdie 0x0C: gids 6731/6733/6735/6737/6739, 16 frames each, as many as the body's 12027-12035). In **6737
+  (view 3) frames 10 and 12** export as bare tile strips (`png export`: no layout describes them) with only 2 tiles
+  drawn, where the other frames have a 9x12 picture: a likely cause (the hair would blink in those 2 steps), and
+  then it is the original game's art, not the mod. **Not proven:** strips also show up in hair the game draws fine
+  (e.g. whole Normal-walk assets of male style 4 and female styles), so a strip alone means nothing; the 2-tile size
+  is the suspicious part. Same 2 frames in male style 2 (6295). Next: load the owner's save (P._ram_run + _load(),
+  poke the style after the load: mod_on_load sets it from the save), walk Nerdie with DOWN+LEFT / DOWN+RIGHT
+  (`hold`), shoot every frame and zoom on the head; compare with the frame numbers above. A scan of all walks x
+  styles x sexes for strip frames: 37 assets (list it again with the scan in this session's notes if needed).
+  Mistake to avoid: the mod's struct moves when the core grows; find it with `find_magic` (WALK) every time
+  (stale pokes made Normal and Nerdie look the same).
+- **Pictures on info pages** (core, 2026-11-19, `mod_page_t.icon`): up to 4 extra buttons of the info menu
+  (action 0x70 + i, label 0xF00D = empty). After `menu_redraw` made their sprites from the menu's sheet, the
+  core gives each sprite a `ui_sprite_table` row: `set_palette_row(e, 8 + i)` first, then `entity_records`
+  (it loads the record's palette into the sprite's current row: `FUN_02001050` -> `FUN_0202005C(palette, row
+  x 16, 16)`; the other order left them black), then `entity_set_frame(e, 0)`. Their labels are drawn by the core
+  in the 5th line's text tiles (0x51 + 0x28 x 4 + 20 i); label i of the game's own would share line i-1's tiles
+  (stray letters seen). Proven (proof `walk-style`, build/proofs/walk-style-page.png): coloured pictures, tap
+  results, nothing left on the Mods page after Back. `mod_page_t.selected` adds the goals' selection frame
+  (`ui_sprite_table` row 14, gid 641, 8 frames of a shine going round; palette row 12) as one more button on
+  that picture's spot; the core steps its frame every 4 ticks (seen: it changes between two shots).
+- **The Rep group pictures** (the S goals, Goals > S): `ui_sprite_table` rows 373 Streeties (gid 3461),
+  378 Nerdies (3440), 377 Richies (3446), 396 Artsies (3380), each with its own palette; seen by tapping each on
+  the S goals screen with the 4 goals poked active (`goal_table` mission 5).
 
 ## Player body on a person (Phase 6 prototype, mod `npc-body-proto`)
 
@@ -816,6 +868,45 @@ From the decompile (Ghidra 11, research/README.md) and emulator runs; proof `npc
   10 bytes at **0x02141144** (gender, skin, hair style, hair colour, shirt style, 4 clothing colours,
   shoes); only gender and hair style pick sprite art. Tables and save fields: **docs/player-look.md**.
 
+## The moving crate (2026-11-20, mods/moving-crate, proof `moving-crate`)
+
+Read from the code (Ghidra 12.2 decompile) and seen in DeSmuME on the original ROM from `apartment.sav`; names in
+code/game.sym.
+- **What fills it:** renting a home (`move_home`) runs `pack_home` 0x0203C774 on the old home's areas: each placed
+  thing goes into **item list 21** (the crate, 50 slots; `crate_list_ptr` = game_state+0x158, header 0x02141328) until
+  it is full (the rest is lost), then the area is cleared; and the flag game_state+0x111 (home_lot+1) is set.
+- **Where it stands:** object 230 "Moving Crate" is an area record in each rentable home's main area (22, 23, 30, 38,
+  67, 74; not the first home, 68). The record's object spawn (0x020684A4) makes it only when `crate_here`
+  0x02046948 says so: the current area is the lot's main area and the flag is set. Seen: in a whole run past
+  midnight the flag was read only there (on area load); the "the longer you wait, the more it costs you" text has
+  no code behind it that we found.
+- **Its menu** (class 230: list 0x020624D8, dispatch 0x020623DC): Open the Crate (0x0F) always, Return the Crate
+  (0x10) only when list 21 is empty. Return clears the flag and deletes the crate for good.
+- **Open** plays the open animation, then `set_state_other(17, 0, 21)`: the shop screen on list 21, titled
+  "Moving Crate", with Pockets on the left (seen). A double-tap (or a tap on the item already chosen) on a crate
+  item takes it into Pockets (`shop_buy` path: no price for lists 21/22). There is no Sell button, and the
+  screen's input (`shop_input` 0x0209BA50) skips the Pockets side for lists 21 and 22 (0x0209BB08-0x0209BB14),
+  although `shop_sell` 0x0209CC50 already handles them: no price check, the item goes into list 21 (for list 22
+  too), and it leaves Pockets **even when list 21 is full** (the item would be lost).
+- **Pockets icon:** an item's icon is its `object_text_table` model's row of `ui_sprite_table`; the crate's model is
+  632 (none). A no-icon object (135 seen) in a shop-screen list left the touch screen black for good (bottom
+  master brightness stuck at 0x8010): another reason the mod gives the crate an icon.
+- **Placing from Pockets** (`pockets_use` 0x0203DF08): a double-tap asks 0x0203FA80 ("a use item?"), then
+  `place_object_check`; 230 was refused there by the 224+ rule (traced). Allowed, the game's carry mode takes the
+  crate like furniture, places it as a normal placed object of class 230 (same menu) and saves it.
+- **Placed objects of the area on screen are not in the store:** after a load at home `placed_store` was empty
+  (total 0) and the placed crate a node of `object_list_head` (seen); other areas' things are in the store
+  (`store_remove` 0x0203C82C drops a record; the burglar 0x020A72AC uses it).
+- **mods/moving-crate** (always on): action 0x10 is always offered and renamed Move the Crate (text 3624): it puts
+  230 into Pockets ("Your Pockets are full!" otherwise) and deletes the crate; `crate_here` becomes "in the main
+  area and the crate is not in Pockets or placed anywhere" (list 21 is first cleared of any 230, which
+  `pack_home` puts there when the crate was placed in the old home); the Pockets side works on the crate screen
+  (refused when the crate is full or for the crate itself); the place check lets 230 through (a stub at
+  0x0203F804); the crate's icon is the Soap Box's (model 97). **Proven (proof `moving-crate`):** put in, full crate
+  refuses, take out, Move, put down, its menu, save + load (one crate, at the new place), renting the Large
+  Brownstone (the old crate taken out of list 21, the new home has its crate). Not checked: melonDS, a crate put
+  down in another room of the home, the Townhouse and penthouse homes.
+
 ## Jobs and money
 
 - `add_stat(kind, delta)` (0x02035350): kind 2 = money (capped at 999,999, refreshes the HUD);
@@ -836,10 +927,40 @@ From the decompile (Ghidra 11, research/README.md) and emulator runs; proof `npc
   (0x0204C158 / 0x0204C014 / 0x0204BE4C), 5 title, 6 settings, 7 save game, 34 (0x22) the city's bottom
   menus. The update loop calls `table[state].update` (0x0204DCE0).
 
+## Power-on: logos to the city (2026-11-20, mods/quick-start, proof `quick-start`)
+
+Seen in DeSmuME (set_state traced on the original ROM with `verify/scripts/loadgame.json`), then used by the mod:
+- Per-screen blocks at **0x027C0070** (x 0x8C): +0 state, +4 mode, +8 param, +0x2C the pending state | 0x80
+  (+0x30 mode, +0x34 param). `cur_screen` 0x027C0004 is the screen being run. Here screen 0 holds the city
+  (the top screen) and screen 1 its menus (state 0x22).
+- The frame loop is in ITCM (0x01FF89F0). For each screen: when the pending state differs, it starts a fade-out
+  (phase byte 0x027C006C + screen = 2); when the fade ends, phase 1; after both screens, each phase-1 screen
+  gets its pending state (exit, copy, enter) and a fade-in. `fade_busy` 0x02080654 is nonzero while either
+  screen fades.
+- Frame 15: both screens enter **state 3** (the logos; its update `state_logos_update` 0x02045640 runs on screen
+  0 only). After the logos (with A / START presses, about frame 1,300) it calls `set_state_here(0x21)` (the
+  title's top) and, on screen 1, `set_state_here(5)` (the title). **State 0x21's enter (0x020AB840) calls
+  `game_reset` 0x02035D5C**: it clears the game globals and allocates the placed-objects buffer
+  (game_state+0x664). Loading a save before it writes through a 0 pointer and wipes low memory (a crash at a
+  garbage address, seen).
+- Load-an-Urb is state 7 (mode 0) on screen 1. Its confirm (`load_confirm` 0x0204781C): save_ctx+0x80 = slot,
+  `save_read_slot`, `save_slot_valid`, `load_transition` (u8 0x027C0064) = 1, `set_state_other(1, 5, 0)` (the
+  city, load mode) and `set_state_here(0x22)`. `game_start` then reads save_ctx+0x80. The slot-info table it
+  checks (`save_slot_info` 0x02141F80) is still 0 during the logos. It also pauses the music stream around the
+  read (0x02098420 / 0x02098388); the resume clears 8 KB at a pointer that is 0 before the title's music.
+- The logos leave both screens' fade level at 16 (dark): `screen_level(0x3F, 0)` (0x0208093C) sets it to 0,
+  as it is when Load-an-Urb confirms. A state change while a fade runs never finishes (screen 1 stayed pending).
+- Quick Start does: wait until `fade_busy` is 0 in state 3's update, then `game_reset`, the confirm's steps (no
+  music pause) in screen 1's turn. City from power-on at frame 69 (2.5 s) instead of about 2,040 with presses.
+  Quit and the game's other ways back go to the title (state 5), never state 3. Not checked: melonDS and real
+  hardware, the music after a quick start (no sound in the harness).
+
 ## Bottom-screen menus (Urb Info, Options, ...) (proven, Phase 5)
 
-- Menus are data. `menu_table_ptrs` 0x020F5654 = 5 menu pointers (2 = Options 0x020F56EC, 4 = Urb Info
-  0x020F5744, 1 = a 6-button sub-menu); the open menu's index is `menu_ui+8` (`menu_ui` = *0x02144CEC:
+- Menus are data. `menu_table_ptrs` 0x020F5654 = 5 menu pointers (**0 = Urb Info 0x020F5744**, the city's
+  default bottom menu; 1 = a 6-button sub-menu 0x020F57B0, the Catalog's pages; 2 = Options 0x020F56EC;
+  3 = 0x020F5844; 4 = 0x020F56A8, not yet known). [PROVEN 2026-11-20: the array read in RAM, and `menu_ui+8`
+  = 0 with Urb Info on screen; an older note here said 4 = Urb Info.] The open menu's index is `menu_ui+8` (`menu_ui` = *0x02144CEC:
   +4 open, +8 menu, +0xC action, +0x10 selected). Only 4 literal words point at the array
   (`menu_ptr_lit_1..4`), so it can be moved and lengthened.
 - A menu: `{u32 gfx, u32 layout, 0, 0, u32 pal16, u32 pal256, u16 count, u16}` then `count` buttons of
@@ -859,6 +980,315 @@ From the decompile (Ghidra 11, research/README.md) and emulator runs; proof `npc
   the first (the core sets row = frame for its menus).
 - Proven: the core's Options has a 4th button "Mods" that opens a Mods page (menu 5) and info pages
   (menu 6); real touches switch mods (proof `mods-page`, `npc-life-page`).
+- Urb Info buttons (0x020F5744): Jobs (61,57) action 0x14, My Xizzles (198,57) 0x1D, Catalog (61,120)
+  sub-menu 1, Rep Group (198,120) 0x0E; icon frames 0-3. The game stores the touched action at `menu_ui+0xC`
+  and calls `menu_dispatch` (0x0206FDE0), which runs it and closes the menu for ids it doesn't know.
+- **A 5th Urb Info button** (2026-11-20, `mods/cellphone`, proof `cellphone`): a mod can read the core's
+  menu array through `menu_ptr_lit_1`, put a copy of Urb Info with `count` 5 at index 0 (the 5th button at
+  (128,88) fits between the four, label under it), and take over the touch handler's `BL menu_dispatch`
+  (`menu_dispatch_call` 0x0206FDE4) to see its own action (0x50). Not calling `menu_dispatch` (mods/cellphone never does) leaves the menu
+  open (the handler returns unless the action is 0x22), as the game's refused Save Game; a `wrap` can't do
+  that (the dispatch always runs after it and closes the menu). [PROVEN: proof `cellphone`, the refusal.]
+  The core's own menus (Options, Mods, info) are untouched.
+- **A new picture for it** (2026-11-20, `kit/urbz_menuicons.py`, mod.json `"urb_info_icon"`): Urb Info's sheet
+  is gfx 10362 / layout 10363 (4 frames, 4bpp, 32 x 32) with palette 10361, whose rows 4-15 are unused filler
+  (0x001F). The builder appends a 5th frame and puts its colours in row 4; a button with icon frame 4 then
+  shows it in its own colours. [PROVEN: proof `cellphone`, every opaque pixel of mods/cellphone/icon.png on
+  screen at (128, 88); the other four buttons look unchanged in the same screenshot.]
+
+## Chats (social menu) and the sex check (2026-11-18)
+
+Found in the code (capstone) and watched in DeSmuME from a real save (Sue Pirnova, 58, on a street):
+- A chat shows 4 choices. Their codes are 4 bytes at **`social_options` 0x02147508** (struct 0x021474F8
+  +0x10). Code c < 0x4A is string **3732 + c** ("Talk about Aliens" ... 0x40 Tease, 0x43 Flirt, 0x44 Hug,
+  0x45 Kiss); 0x4A = FRIENDLY STUFF (3806, always the 4th), 0x4D move in/out (3809/3810), 0x4E What's Up?
+  (3731), 0x53 The 411 (3812), 0x54 empty. Drawn by `social_draw_options` 0x0208DC1C. [PROVEN: watch
+  write on 0x02147508 + screenshots]
+- **`social_pick_options` 0x0208F230** draws choices 1-3 at random (`0x0207A118(max)`, max 0x45, or
+  0x46 with save flag 11), no repeats. For Flirt or Kiss it reads the person's sex (**`npc_sex`
+  0x02066A28** = person record +0x27, 0 male) and the player's (`player_look`+0): **same sex -> draw
+  again** (0x0208F3BC `ldreq sb,[sp,#0xc]`). People 36, 40, 43, 44, 53, 69, 70 never get them. [PROVEN
+  for the patch: mod `any-romance` (nop at 0x0208F3BC), player poked to female, 41 rounds with Sue:
+  Flirt shown 3x, Kiss 1x. The vanilla count for the same run was not finished.]
+- `add_relationship` 0x0207B074: with save flag 10 (game_state+0x100) a gain with someone of the other
+  sex earns 1 more point (0x0207B0E0 `cmp r1,r0`); `any-romance` makes it count for everyone. [code only]
+- `npc_sex` is also used at 0x02009880 to pick a voice sound (0x112/0x11A/0x11B). [code only]
+- **Replies** (2026-11-20, mod `friendly-topics`): a plain topic's reply comes from the person's table,
+  **`social_replies` 0x02114698** + (person - 31) * 0x274 (people 31-66 only; past 66 it is other data; person
+  31 uses 0x02114014 when game_state+0x959 is set). One 8-byte entry per topic {u32 text, s8 relationship
+  change, u8 animation}; entry = code * 8, except 0x15 -> 0xB0, 0x16 -> 0xA8 (swapped), 0x43 Flirt -> 0x230,
+  0x46 -> 0x238 (`social_reply_entry` 0x0208ABF4). `social_add_rel` 0x0208FFF4 adds the change plus
+  `rep_bonus` 0x0207CC3C (-2..+2 from `rep_groups` and the person's group, `rep_group_of` 0x0207CCC0): above
+  0 = happy reaction, below 0 = unhappy. Changes are -8..+4; most people like 25-40 of the ~70 topics.
+  [PROVEN: proof `friendly-topics` checks 12 dealt sets against this table]
+- FRIENDLY STUFF (0x4A) opens a sub-menu (0x4B, 0x4C, 0x4D or empty, 0x4A); 0x4A there calls
+  `social_pick_options` again (call 0x0208E064). A chat opening calls it at 0x0208E3D8. [PROVEN: watched]
+- When a need is very low the player won't chat (lines 3723-3730, e.g. 3730 for Room); tests fill the
+  needs first (poke `player_motives`).
+- Opening a chat in tests: walk up to a person (D-pad = world axes: DOWN +y, RIGHT +x, ~1.2 px a frame),
+  hold them in place by poking their entity +0x18/+0x1C every frame, face them, A.
+
+**Player sex in a save:** `python urbz.py save set in.sav out.sav --gender male|female` (slot +0x1E bit 7).
+Proven 2026-11-18: a female save switched to male loads with the male body, `player_look`+0 = 0.
+
+**Harness on Windows (py-desmume 0.0.9):** `backup.import_file` leaves the EEPROM blank, so `.sav`
+loading failed and every `--from`/`--sav` run stopped at the title (Load-an-Urb skipped). `_emu` now fixes
+the save type at 8 KB on Windows and, if the import didn't take, writes the `.sav` into a frame-0 savestate's
+backup chunk (`_backup_via_state`). `fcntl` falls back to `msvcrt`. Linux behaviour is unchanged (not
+re-run there).
+
+## The chat screen (2026-11-22, mod `better-chat`)
+
+Read from the code (capstone) and watched in DeSmuME (Lottie Cash; the owner's Kris savestate shows the "!" and "?"):
+- The bottom screen is 12 sprites, pointers at **`chat_sprites` 0x02142014**: +0x50 green tick (frame 0xC), +0x54 up
+  arrow (0xD), +0x58 down arrow (0xB), +0x5C back (0xA), +0x60..0x6C the four topic rows (frame 9), +0x70..0x7C their
+  icons (frame 0x19C + topic code; 0x4E "!" = 0x19B, 0x53 red "?" = 0x1EA; palette row 0x3B). Sprite +8 low half is the
+  button id (rows 0x28-0x2B, back 0x2C, up 0x2D, down 0x2E, tick 0x2F), +0xA the frame, +0xC flags (bit 0 shown), +0x105
+  palette row. `sprite_anim` 0x02001DC0 (rows: 0 normal, 1 selected, 2 pressed; an arrow showing an icon is blank in 1).
+- The state machine is **`chat_update` 0x0209092C** (dialog block `dlg_ui` 0x027C0000 + `[+4]` * 0x8C: +0x74 mode, +0x78
+  selected row or -1, +0x84 state: 0 topic list, 1 FRIENDLY STUFF's sub-menu, 2-6 replies and the quest/gift boxes). The
+  game's tick stands still in a chat (`mod_on_tick` ran 18 times in 250 frames): use a `wrap` on `chat_update`.
+- State 0: `chat_touch` 0x0208B280 hit-tests the 8 rectangles at 0x02119F54 (rows 0-3, up 4, down 5, tick 6, back 7) and a
+  touch on a row selects and confirms at once; `chat_keys` 0x0208B0A0 moves the selection with UP/DOWN (0x40/0x80 in
+  input_state+10, no wrap, DOWN stops at an empty row) and returns 1 for A. It lights the selected row only on frames with a
+  D-pad key pressed.
+- `social_pick_options` puts 0x4E ("!", when the person has a quest: table 0x020D7AD4 via 0x02065044) in row 0, and 0x53
+  ("?") for people 45 (Kris) and 37 while game_state+0x81C is 0 in row 0 or 1: Kris at the start showed one normal topic.
+- During a reply the game itself shows the two arrows (white, paging the message), the tick bright, back dim.
+  [PROVEN in DeSmuME: proof `better-chat` (forced "!"/"?" on Lottie, since the real quest needs Kris at the start)]
+- Topic icon frames (`chat_icons`): 0x19C + code, except 0x4A FRIENDLY STUFF 0x1E3, 0x4B-0x4D 0x1E4-0x1E6,
+  0x4E 0x19B, 0x53 0x1EA; every icon gets colour set 0x3B (`sprite_palette`(icon, 0x3B)). `chat_icons` flips
+  `screen_index` (eor 1) while it runs. `sprite_new` takes the sprite from the list of the current `screen_index`
+  (0x02006264: pool 0x02122300 + screen * 0x210): made while the top screen is run, a chat sprite shows on the top
+  screen. Seen: `chat_init` is entered with screen 0, the chat's frames (`chat_update`) run with 1. [PROVEN in
+  DeSmuME: proofs `better-chat`, `better-chat-four` (screenshots)]
+- Reply states: state 3 (`chat_touch_call3` 0x02090E5C) goes on with touch 6 or 7, states 5-7
+  (`chat_touch_call5` 0x0209111C) with touch 6 or A. FRIENDLY STUFF's sub-menu is state 1; its BACK row (0x4A)
+  deals a new list through `chat_icons_call2`; the back button closes the chat. [PROVEN: proofs above]
+
+## The telephone (2026-11-19, read from the code; not yet run)
+
+The home phone (objects 205-207) is an object activity, `phone_activity` 0x020A5168 (state in the use record
++6). Its parts:
+- `phone_open` 0x020A4D94: the people you know (relationship > -101, via 0x0207AB3C over the 36 at
+  0x0214114E) sorted by name into **`phone_list` 0x02148F48** (s8[36], -1 = end; count u8 0x02148F44); then the
+  choice box: at home (`is_home_area(home_lot, current_area)`) Call Services (324) / Call Friend (325) / Invite a
+  Friend Over (334), away only Call Friend.
+- `phone_list` holds person **ids** (31-66, e.g. Kris 45; seen in RAM), so a name is string 481 + id
+  (= 512 + c).
+- `phone_names_page` 0x020A4B7C: 4 names (string 481 + id) from **`phone_page` 0x02148F40** (u8, first shown
+  entry); choosing Call Friend or Invite sets it to 0 first (0x020A5474, 0x020A5490).
+- **`phone_call` 0x020A495C (list index, use record)**: "There is no answer." (1144) when the person is out of
+  town (schedule 82), a roommate (game_state+0xAEE/0xAEF) or one of 3 at 0x0211BDF0; else "for a little while /
+  a few hours / quite a while" (1145-1147, from the schedule) + where (1057 + area); +1 relationship; shows the
+  person's face: `ui_sprite_new(0xF1, face_image(c), 0xF, 0)`, **`face_image` 0x0204E5A4**.
+- **`phone_invite` 0x020A477C (list index, use record)**: no answer as above; else yes with chance
+  relationship / 2 + 10 (0 if negative): 1137 "That sounds like fun! I'll be over in a few minutes." and
+  **`npc_visit_home` 0x02064768(c)** (zone 0 for 3,600 ticks); no: 1138 / 1140.
+- Both set use record +6 = 0x1F and end with `dialog_open` 0x02078530.
+- The name list (states 0x1C Call / 0x1D Invite, 0x020A5574 / 0x020A5624) reads `dialog_result`: 0 = next
+  page (page += 4, wraps), 0x7FFFFFFF = cancel, n = `phone_call` / `phone_invite`(page + n - 1).
+  `mods/phone` skips the two page = 0 stores (0x020A5478, 0x020A5494). Built, not yet run.
+- Faces on the bottom screen (2026-11-19, emulator, research probe; not finished): `ui_sprite_new(0xF1, 470 + c,
+  0xF, 0)` with `screen_index` = 1 from the world tick makes a sprite in the bottom list. The UI sprite's update
+  (+0x4C = 0x0204E7B8) puts it back at its slot's place every frame (table 0x020CA88C, 8 bytes per slot; 0xF1 =
+  19,45); with +0x4C = 0, `entity_set_pos` 0x02001DAC places it (6 shown in a grid). **But they showed old menu
+  icon tiles, not faces**: the picture is not loaded into the bottom screen's sprite memory this way. Swapping
+  a menu button's sprite record (0x02003254) and forcing its frame (+0x97, 0x02001DC0) changed nothing on screen.
+  Next to try: create them while the bottom screen is drawn (inside `menu_redraw`, as the menu icons are).
+- The phone's list now opens a touch screen like the Mixer's ("Object touch screens" below): `mods/phone`
+  takes over the two calls to the 4-name box (0x020A547C Call, 0x020A5498 Invite).
+- **The player's phone animations** (read from the code, Ghidra 12.2; proven for the home phone, proof
+  `phone-screen`, DeSmuME, RAM only: the home phone is at the lot's top edge, out of the camera's view). The
+  phone kind is the object node's +0x3B, set by `phone_activity` state 0 from the object: 205 -> 1, 206 -> 2,
+  207 -> 3, 212 -> 0. `phone_anims` 0x0211BDF4 holds 3 rows x 4 kinds x {facing, object look (6 = none),
+  player animation}: pick up (state 8, via 0x020685F0, sound 0x1C9) 0x52 for kind 0, **0x51** for 1-3; hang up
+  (state 0x1E, sound 0x13B) 0x53 + object look 3 for kind 0, 0x04 (stand) for 1-3; end of use (state 1,
+  0x02068564: it also sets the player's facing to 4) look 0 + 0x04. The game picks up, waits for the
+  animation's end (entity +0xC bit 0x400000), shows the menus and the answer while holding it, waits 30 ticks
+  (state 0x1F, player +0x10E) and hangs up. `object_set_look` 0x02067D04(object entity, look).
+- After the faces screen (`mods/phone` 0.7, proven, proof `cellphone`, DeSmuME): the city is back ~16 frames
+  after the second touch; the mod holds the player in state 0 (+0x104; the D-pad then moves nothing) until the
+  phone is put down, and makes the call 12 ticks into the pick-up: the answer is up at ~70 frames (it was
+  ~144 when it waited for the pick-up's end, with the player free to walk).
+  The world tick (and `mod_on_tick`) does not run while the answer box is on the top screen (state 2).
+- **From anywhere** (2026-11-20, `mods/cellphone` with `mods/phone` 0.5, proof `cellphone`): the touch screen
+  needs no phone use. `mods/phone` builds `phone_list` itself (as `phone_open` does: `people_known`
+  0x0207AB3C(`social_book` 0x0214114E, buf, 36, -100, 100 on the stack), then sorted by the first 4 bytes of
+  each name), fills `return_spot` with the player and `area_entry_point` = 0xFF, and opens the same
+  screens. The city comes back with the player on the same spot; the home phone's pick-up (0x51) and
+  stand (0x04) play with no object. Other mods reach this through `phone_api` (magic 'PONE' and its own
+  address, in mods/phone/code/main.c).
+  `mods/phone` plays the same steps itself once the city is back: pick up, the call when the animation ends
+  (or after 120 ticks: 0x51 never set the end bit in the test), hold during the answer, hang up 20 ticks after
+  it closes; it stops if the player's animation is no longer its own (they walked off).
+- **The phone's own menu from anywhere** (2026-11-20, `mods/phone` 0.6 `phone_api` version 2 `open_menu`,
+  used by `mods/cellphone` 0.2; proof `cellphone`, DeSmuME): the player plays 0x51, then `phone_open` (the
+  question box, top state 2); the city (and `mod_on_tick`) waits while it is up, then `dialog_result` (0-based)
+  is read as `phone_activity` state 0x1A does: away from home the only choice (0) means Call Friend (1);
+  0 = `phone_services_box` 0x020A4CFC (Fire / Repair Man / Maid), 1 / 2 = the faces screen. Services
+  (state 0x1B): choice 0/1/2 = service 0/2/3; `phone_service` 0x02148F3C = the choice; `service_order`
+  0x020A4F74(service, record) shows the answer and sets record +6 = 0x1F (or "not enough money", 4 and 0x1E);
+  30 ticks later the hang-up and `service_call` 0x020647D0(service). Seen once at home: Fire, "The fireman
+  is coming!", the fireman came. Money is not taken by `service_order` itself (not checked where it is).
+- **No box for one choice** (2026-11-20, `mods/phone` 0.9; proven, proofs `pay-phone` and `cellphone`,
+  DeSmuME): `phone_activity` state 0x19 calls `phone_open` at 0x020A5390 and sets state 0x1A, which reads
+  `dialog_result` on the next tick (away from home 0 means 1). `mods/phone` takes over that call
+  (`phone_choices`): at home the game's box; away it builds `phone_list` itself and sets the result to 1
+  (Call Friend), so the faces open with no box (state 0x1C, or a hang-up when nobody is known). The pay
+  phone (206, Urbania Park) needs money first ("You don't have enough Simoleons!" with 0). The cellphone
+  away from home skips the pick-up too and opens the faces at once (~18 frames after the touch).
+- **The cellphone on its own** (2026-11-20, `mods/cellphone` 0.3, `mods/phone` 0.9 `phone_api` version 3;
+  proven, proofs `cellphone-alone` and `cellphone`, DeSmuME): the menu above now lives in `mods/cellphone`;
+  the Phone mod only offers `open_faces(invite)`. Without it (or switched off) Call Friend / Invite use the
+  game's own box of names, **`phone_names_box` 0x020A4C8C** (item 0 "More", then 4 names from `phone_page`;
+  `dialog_result` 0 = the next 4, n = `phone_call` / `phone_invite`(page + n - 1, record)), as states 0x1C /
+  0x1D do; a zeroed 12-byte record stands in for the use record; 30 ticks on the line, then the hang-up.
+
+## Object touch screens (Mixer, Oven, wood carving) (2026-11-19, read from the code; Ghidra 12.2 decompile)
+
+- Using a Mixer (215/216), a stove/oven (9-11) or a carving bench runs activity 0x24 through `0x0206A460`:
+  when the use animation is done it saves where the player stands (`return_spot` 0x02141C2C: +0 the player,
+  +7 facing, +8 x, +0xA y; `area_entry_point` 0x02141C28 = 0xFF), ends the use (record +6 = 1) and switches both screens:
+  `set_state_here(0x25, mode, 0)` (top: state 37, the help text) and `set_state_other(0x1F, mode, 0)`
+  (bottom: state 31, the touch screen). Mode: 0 Basic Mixer, 1 Deluxe Mixer, 2 Oven, 8-11 carving.
+- Each screen has a block at `screen_block` 0x027C0000 + screen x 0x8C: +0x74 mode, +0x78 the part drawn
+  first, +0x84 the sub-screen the update runs, +0xD4 `dialog_result`; `set_state` writes the next state
+  (| 0x80) at +0x9C, mode +0xA0, param +0xA4.
+- `obj_screen_modes` 0x020C2BF4, 16 bytes per mode: background graphics (two), a count, the title string
+  (4151 Basic Mixer, 4152 Deluxe Mixer, 4153 Oven, 4154-4157 workbenches / Wood Carving). **Modes 3-7 are
+  unused copies of mode 0**, so the game's own state 31 runs safely in them (the phone uses 7).
+- State 31: enter `obj_screen_enter` 0x02028888 (backgrounds, `obj_screen_buttons` 0x0202859C: a picture,
+  the round button kind 5 at (130,101) hidden and the close button kind 4 at (128,179) in slot 0x10, then
+  `obj_screen_draw` 0x02027D90(0xD) the title, (0xE) the 8 ingredients in a 4 x 2 grid); update
+  `obj_screen_update` 0x02028814 by sub-screen (0 -> 1; 1 = `obj_screen_touch` 0x02027290: ingredient
+  touches, and the close button: `set_state_here(0x22, 0, 0)` + `set_state_other(1, 2, current_area)`, the
+  city coming back without placing everyone again). State 37: enter `obj_help_enter` 0x02024D94 (title from
+  the mode's row, help 163 carving / 164 mixer / 165 oven).
+- Buttons: `button_new` 0x0206F6F4(kind, palette, 0, shown, x, y) makes a round button (UI sprite 0x4C,
+  picture 0x267, frame kind x 3, update 0x0206F4A8) **placed by its centre**; `button_hit` 0x0206F5E8(slot)
+  tests a 30 x 30 box around `obj_buttons` 0x02142014[screen x 20 + slot]. (The menu icons the face probe
+  used, ui_sprite_new(0x8A..), are placed by their top-left corner instead: half a button too far right.)
+- **`obj_screen_buttons` needs buttons 12 and 13** (proven 2026-11-19, the owner's melonDS game froze):
+  after the mode's own sprites (only modes 0/1 mixers, 2 oven and 8-11 carving make any) it clears flags at
+  +0xC of `obj_buttons`[12] and [13]. In modes 3-7 both are empty, so it reads and writes address 0x0C.
+  DeSmuME lets that pass; melonDS (and the DS) takes a data abort: both screens black for good (the melonDS
+  savestate showed CPSR 0x97, abort mode, return address 0x0202863C). `mods/phone` lends it two spare
+  buttons for the call and empties the slots again. Proof `phone-screen` watches 0x08-0x17.
+- While the touch screen is open the top screen is not the city, so the city (and every object use) waits.
+- `map_fill` 0x020180FC(layer, x, y, w, h, value), in tiles (h and value on the stack): the mixer clears its
+  panel with (1, 1, 12, 16, 7, 0). Called with only 4 arguments it fills garbage sizes: the screen stayed
+  black for ~400 frames and came up broken (seen in the emulator).
+- **Proven (proof `phone-screen`, DeSmuME, 2026-11-19):** `mods/phone` opens this screen in mode 7 for Call
+  Friend and Invite (top 37 / bottom 31, both mode 7). Faces load fine here: `ui_sprite_new(0xB0 + i,
+  face_image(id), 0xF, 2)` shows the person's face in square i (Kris), and `button_hit(i)` finds it once the
+  sprite is kept in `obj_buttons[i]`. Moving the selection frame (button slot 8): its u16 +8 = 0xB0 + i **and** `0x02000E54`(frame, 0) (UI sprite
+  state +0x105 = 0); the UI sprite update 0x0204E7B8 moves it to its slot's place only in state 0 (as the
+  mixer's touches do). Without the second step it stayed on the first square (the owner saw it; proven).
+  The round button (slot 0xF) shows by setting bit 0 at +0xC. After the green button: bottom 34, top 2
+  (the game's answer box from `phone_call`, string 1122 for Kris at the Law Offices); the red arrow (slot
+  0x10) goes back to the city with no message. Pictures: build/proofs/phone-screen-*.png. Not yet seen: melonDS.
+- **The touch screen's layers (bottom engine, read from VRAM in DeSmuME):** all 16-colour 256 x 256.
+  BG0 (char 2, map 29) empty; BG1 (char 2, map 31) the text; BG2 (char 0, map 30) the frames: squares, panel and
+  the blender's 3 squares (columns 24-28, rows 4-15; blank tile entry 0x011B); BG3 (char 0, map 28) the purple
+  right-hand panel with the blender drawn in it (plain tile entry 0x6002 from column 21; column 20 is its edge).
+  Char 0 tiles in use go up to 297; BG palette rows 9-15 are not used by BG2/BG3. `map_fill`'s layer is the BG
+  number. (`mods/phone` up to 0.7 drew its phone picture over the blender here; 0.8 has Pockets' look instead,
+  "The Pockets screen" below.)
+- Face colours: each square's sprite needs its own OBJ palette row (`ui_sprite_new(0xB0 + i, picture, i, 2)`,
+  as the mixer's ingredients); with one shared row (0xF) every face took the last one's colours (seen). Each
+  face's `ui_sprite_table` record names its own palette (faces 470-479 seen: all different).
+- Coming back from the touch screen the player faced 4 instead of the 6 they used the phone from, so A no longer
+  pointed at it; `mods/phone` puts the facing from the start of the use back for 15 ticks (seen: the phone opens
+  again). A first version wrote the 0xFF to 0x02141C2C (the player pointer) instead of `area_entry_point`:
+  afterwards the game lost the player (A did nothing). Fixed; keep the two apart.
+- `mods/phone` remembers the last person called or invited (1 byte of mod save data) and opens on their page with
+  them selected (seen in DeSmuME; not yet across a save and load). With nobody called yet (or them not listed) the first face is
+  selected, where the game draws the frame anyway (before, the frame showed there but A only selected it).
+- Keys on the phone screen (proven, proof `phone-screen`, DeSmuME): `input_state`+10 (keys pressed this frame)
+  read in sub-screen 1. D-pad moves the selection (6 across, 2 down since 0.8; left / right and R / L go on to the other
+  page), A calls, B hangs up; a second touch on the selected face calls (a held touch counts once). If the last
+  person called now has a negative relationship, the game's list leaves them out; the screen opens on page 1
+  with nothing selected (proven).
+- **The Rep Group's relationship bar** (read from the code, Ghidra 12.2; used by `mods/phone`, seen in
+  DeSmuME): the Rep Group screen's enter 0x0207C264 loads palette record 0x020F6F00 into sprite palette row
+  0xD (`palette_load` 0x0206D8D8(row, record)), makes `entity_new`(0x19) with `entity_records`(e,
+  0x020F6F04), row 0xD, position (117, 60), +0x90 &= ~0xC00, +0xC |= 0x200009. 0x0207B8D8 sets its frame to
+  (relationship + 100) / 2 (0-100; the marker moves along the bar) and puts the number in a text sprite
+  (string 0xCA "@1", `0x0204EAD8`(0x85, &text)) 0x78 px to its right. The leave 0x0207C168 hides (+0xC bit 0)
+  and frees (`entity_free` 0x02003838) it. `mods/phone` shows the same bar under the name (the number with
+  `text_draw`) instead of where the person is, made on state 31 enter and freed when the screen goes (proof
+  `phone-screen`).
+- **Beads given (2026-11-20, read from the code; owner's save agrees):** each person's 4 bytes around
+  `relationships` are {`rel_flags` 0x02141153, relationship, ?, `bead_given` 0x02141156} + 4 x (id - 31).
+  `rel_flags` bit 4 is "a friend": `add_relationship` sets it when the relationship climbs to 50 and **clears it
+  below 50** (count at 0x02141152), so it is not the Beads. The Beads gift (0x0208C258, in the chat-result
+  function 0x0208BA40) writes 1 to `bead_given`, adds the Beads (0x020B29E8 on 0x02141234) and queues the
+  "@2 gave you some Beads!" notice (queue 0x02141C70, 64-byte records, flag 0x100; shown by 0x0203A4F0, string
+  426). `add_relationship` at 75 or more sets bit (i + 2) of the bit table 0x021421F8 only while `bead_given`
+  is 0. In the owner's save the two people at 74 and 78 have `bead_given` 1, everyone else 0. Not yet seen
+  being written in the emulator (no gift made in a run).
+- **Beads on the phone screen** (`mods/phone` 0.4, proof `phone-screen`): when the selected person's
+  `bead_given` is set, the Collectibles screen's red Beads (`ui_sprite_table` row 20, OBJ palette row 0xC)
+  show under the relationship bar (entity like the bar's, made and freed with it). Seen in DeSmuME with
+  `bead_given` poked (the first five people yes, the rest no); not yet seen in melonDS.
+- The Collectibles screen (Pockets > Collectibles): its X-shaped frame is background tiles (bottom BG1, columns
+  1-7, rows 4-8), not a sprite; the red Beads in it are the sprite above.
+- Round button kinds (`button_new`, seen): 0 left, 1 right, 2 up, 3 down arrows, 4 the red back arrow, 5 the
+  green tick, 6 a green arrow. Re-entering state 31 from its own update (`set_state_here(0x1F, mode, 0)`)
+  redraws the whole screen (the phone's page arrow does this).
+- **Who the phone lists (original game):** `FUN_0207ab3c` takes people whose relationship is between -100 and
+  100 but compares the byte unsigned, so anyone with a negative relationship is left out (Daddy Bigbucks at -19
+  in the owner's game: 9 of 10 known people listed). The relationship is the s8 at 0x0214114E + 6 + 4 x (id -
+  31); -128 = never met.
+
+## The Pockets screen, and the phone with its look (2026-11-20)
+
+- **Pockets** is bottom state 13 (0x0D; enter 0x0204036C, update 0x02040244, leave 0x020401C4), mode 0 (mode 8
+  is Collectibles), opened from the city's bottom bar (the bag at (236,166), then Pockets at (84,75)); seen
+  in DeSmuME: bottom state 13 while the top stays the city (state 1) and runs. (Read from the code and the
+  VRAM; the screen itself is the game's, untouched.)
+- Its layers (bottom engine, read from VRAM in DeSmuME, 16 colours, 256 x 256): BG0 BG control 0x1C09 (char 2,
+  map 28) the text; BG1 0x1B02 (char 0, map 27) the panel, picture 0x288D (0x288E for Collectibles); BG2
+  0x1D00 empty; BG3 0x1F11 (char 4, map 31) the frame, picture 0x286E, left there by the city menu (state 0x22,
+  enter 0x0207121C). The text colours are palette 0x286D in BG row 0 (`0x02017990`(palette, row)).
+- Loaders: `0x020185E8`(layer, BG control) sets a layer up and turns it on; `0x02018494`(0) turns the
+  layers off; `0x02018410`(0x1000) turns sprites on; `0x020183EC`(layer, 0) clears it; `0x02017CF4`(layer,
+  picture, palette row, 0, 0, 0) loads a picture's tiles, map and palette onto a layer;
+  `0x02034884`(BG control) makes `text_draw` draw on that layer.
+- The panel (map 27): 5 squares on the left (3 + 2, a gap at columns 9-12, rows 6-10) and 4 x 2 on the right;
+  each square is 5 tiles wide with its edges, 4 tiles apart (edges shared); map row 10 is both the squares'
+  bottom edge and the text box's top line (the line alone is the tile under the gap, columns 10-13). The text
+  box is rows 10-17, the small box (money) rows 17-22, columns 10-21.
+- Its sprite slots (`ui_slot_pos` 0x020CA88C, {s16 x, y, x2, y2} per slot; `ui_sprite_new` and the UI sprite
+  update read x and y): 0x45-0x49 the left squares, 0x4C-0x53 the right ones ((132,36) ... (228,68)); the
+  selection frame is `ui_sprite_new`(0x4C, 0xE, 0, 2). Text places (0x0203EED0 / 0x0203EED4): the title
+  (128,5), the item's name (120,87), its text (18,97), the money (128,147).
+- **The phone's touch screen with Pockets' look** (`mods/phone` 0.8; proven, proofs `phone-screen` and
+  `cellphone`, DeSmuME): still the Mixer's state 31 in mode 7 (everything above about it holds), but in its
+  enter the phone sets the bottom layers up as the city menu and then Pockets do (0x286E on BG3, the city
+  menu's BG2 picture 0x2891 with BG control 0x1E12, then BG2 emptied with 0x1D00, 0x288D on BG1, 0x286D), and
+  lays the squares out again 7 x 2 from map column 2 to the text box's right edge (column 30) with the right
+  squares' own tiles (centres (36 + 32 i, 36) and (36 + 32 i, 68)). The proof reads the BG controls, the map
+  and the BG colours while open. The faces use UI sprite slots 0xB0-0xBD (the Mixer's 8 squares and 6 more of its), whose
+  `ui_slot_pos` entries are set to the squares while the screen is open and put back when it closes (the
+  proof reads them both times; put back too when state 31 opens in another mode). The name, the
+  relationship bar and the Beads are in the text box, the page ("1/2") in the small box, the page arrows on
+  either side of the name (20,94) and (236,94), the red arrow stays at (128,179).
+- **Pockets' colours come from the city menu, not from its pictures** (proven 2026-11-20: watched writes to the
+  BG palette, compared all 16 rows with the real Pockets'): 0x288D and 0x286E bring no palette; 0x286D is 16
+  colours in row 0; rows 1-4 come from the city menu's BG2 picture 0x2891 (`0x02071194`), which Pockets keeps.
+  The Mixer's enter loads its own 256 colours (its BG3 picture 0x71D), so phone 0.8 at first drew Pockets'
+  panel in the Mixer's colours: close to right in DeSmuME, grey-green in the owner's melonDS game. The phone
+  now loads 0x2891 as the city menu does; the proof checks all 16 rows equal the real Pockets'.
+- **14 faces a page:** each face needs its own sprite palette row (their colours differ; each uses all 15).
+  The round buttons use 0xA and the bar 0xD; the Beads (6 colours, their own row was 0xC) and the selection
+  frame (7 colours, row 0xF) now take the bar's row 0xD instead (owner: another colour is fine): the Beads
+  are made first, so the bar's colours replace their red (they show grey), and the frame's row is set to 0xD
+  after the game makes it (its own colours are nearly the bar's first 7, but the 7th is black: a darker
+  outline). The 14 rows left for faces: 0-9, 0xB, 0xC, 0xE, 0xF.
+- Not yet seen: melonDS; the Mixer, Oven and carving bench screens after the phone (their slots are put back:
+  proven in RAM, not looked at on screen).
 
 ## CPU caches
 

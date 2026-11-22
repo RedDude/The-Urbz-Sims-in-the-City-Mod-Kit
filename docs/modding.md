@@ -34,7 +34,7 @@ references their ID (content wiring comes in a later phase).
 
 ### Build options (`python urbz.py build ...`)
 
-- `[out.nds]`: output path (default `game\Urbz DX.nds`)
+- `[out.nds]`: output path (default `build\Urbz DX.nds`)
 - `--vanilla`: ignore mods (proves the baseline is identical)
 - `--mod NAME`: build with only this mod (repeatable; a name in `mods\` or a folder path), ignoring `mods.json`
 
@@ -116,7 +116,7 @@ call time_update_call my_time_add  # make one existing call go to my function
 jump motive_get my_motive_get      # replace a whole game function
 ```
 then `python urbz.py patch build my-mod` and build as usual. Compiling needs LLVM
-(`winget install LLVM`); building the ROM doesn't, because each mod keeps its compiled
+(`winget install LLVM`, or MSYS2's clang + lld, found in `C:\msys64\ucrt64\bin`); building the ROM doesn't, because each mod keeps its compiled
 `code\build\patch.bin`. A small example is `tests\mods\npc-visit` (a test mod): it answers
 the game's "where should this person be?" question so that Bayou Boo walks onto the King Tower roof
 (where a new game starts) at 10:40 am.
@@ -147,7 +147,8 @@ A C mod can also use **events** (no hooks.txt line needed, just define the funct
 `code\include\mod.h`): `mod_on_tick`, `mod_on_minute(n)`, `mod_on_area_enter(area)`,
 `mod_on_save(buf, max)` / `mod_on_load(buf, len)` (its own data in each save slot, kept even while
 the mod is switched off), `mod_on_enable` / `mod_on_disable`, and `mod_on_page` (an info page,
-opened from the Mods page). `u32 ADDR @name` in hooks.txt writes the address of something in the
+opened from the Mods page; a page of 5 lines or fewer gets R / L in `keys_down`, and `icon()` adds up to 4 touchable pictures (game
+icons) with `tapped` saying which was touched: see `mods\walk-style`). `u32 ADDR @name` in hooks.txt writes the address of something in the
 mod (e.g. to point a game table at your own).
 
 **Leaving a mod out of a build:** a save keeps what mods added (a placed Dog Basket, Pet Treats in Pockets).
@@ -342,6 +343,16 @@ Many chairs and sofas in public places are only painted into the background, so 
 `research\areas\seat_probe.py` sends people to your seats and marks where they sit. A bench seats its sitter about
 42 px to its side (63 px facing up-right or up-left). Seats the game's walking can't reach are refused: try another
 spot. NPC Life ships three, in Café Z-Bach (`mods\npc-life\seats.json`).
+
+## A picture for a new Urb Info button
+
+A code mod can add a button to Urb Info (see `mods\cellphone`). To give it its own picture, draw a 32 x 32 PNG
+(see-through background, at most 15 colours, the button's centre in the middle) and name it in `mod.json`:
+```
+"urb_info_icon": "icon.png"
+```
+At build time the kit adds it to Urb Info's own picture sheet as frame 4, so the button uses icon frame 4
+(`x | y << 8 | 4 << 16`). Only one mod can do this for now. Code: `kit\urbz_menuicons.py`.
 
 ## Save files
 

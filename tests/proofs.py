@@ -10,7 +10,7 @@ proofs that compile C. Test mods live in tests/mods/; data files that would come
 game (asset bytes) are generated here at run time, so nothing from the ROM is committed.
 Built ROMs go to build/proofs/. Exit code 1 if any proof fails.
 """
-import glob, json, os, random, shutil, struct, subprocess, sys, tempfile
+import glob, json, os, random, re, shutil, struct, subprocess, sys, tempfile
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
 KIT = os.path.dirname(TESTS)
@@ -1742,6 +1742,375 @@ def p_pets_menu():
             st['talks'], st['last_pick'], st['actions_done'], happy, st2['last_pick'], kinds2, count2, slot2, st2['n'])
 
 
+PHONE_AT = (24, 0, 6)                               # where the player points at the home's phone (205)
+
+
+def p_phone_screen():
+    """The phone's touch screen (mods/phone; docs/systems.md "Object touch screens"). At home, the phone, A,
+    Call Friend: instead of the box of 4 names, both screens switch the way the Mixer's do (top state 37,
+    bottom state 31, both in mode 7), and the bottom one looks like Pockets: Pockets' panel (BG1 map 27 with
+    the squares laid out 7 x 2), the city menu's frame (BG3) and the text on BG0, in Pockets' own colours (all
+    16 BG palette rows as the real Pockets has them). With sixteen people known (by pokes): 14 faces, the arrow
+    right of the name shows the other 2; touching
+    the first face twice goes back to the city (bottom 34) and the game makes the
+    call: the top screen shows its answer box (state 2) with a string 1057+. A second run: Invite a Friend Over, then the red
+    arrow hangs up (back to the city, no message). The D-pad moves the selection (7 across, 2 down, left / right
+    and R / L go on to the other page) and A calls; two touches on the same face call; someone with a negative
+    relationship who was the last one called is left out of the list (as in the game) and nothing breaks.
+    The selection frame follows the selection (its UI sprite slots are moved to the squares while the screen is
+    open and put back after). The text box shows the Rep Group's relationship bar (an entity made with the
+    screen and freed when it goes) and the Beads. No run touches address 0x08-0x17 (a null button: melonDS
+    froze there). build/proofs/phone-screen-*.png"""
+    import urbz_verify as V
+    rom, log = build('phone-screen', [os.path.join(KIT, 'mods', 'phone')])[:2]
+    base = int(re.search(r'code mod phone: .* at ([0-9a-f]{8})', log).group(1), 16)
+    sym = json.load(open(os.path.join(KIT, 'mods', 'phone', 'code', 'build', 'patch.json')))['symbols']
+    state = V.city_state(os.path.abspath(rom))
+    pts = json.load(open(V.AREAS_JSON))['areas'][68]['entry_points']
+    job = lambda script, snap: {'rom': os.path.abspath(rom), 'out': tempfile.mkdtemp(prefix='urbz-proof-'),
+                                'tag': 'snap', 'poke': [], 'state': state, 'goto': (68, pts[0]['id'] if pts else 0),
+                                'script': [['wait', 60]] + script, 'snap': snap}
+    res = V.run_child(job([['shot', 'x']], [MEM_HI]), timeout=600)
+    w = _world_full(open(res['snaps'][0][1][0], 'rb').read())
+    pl = [e for e in w if e[1] == 0][0]
+    ob = [e for e in w if e[1] == 5 and e[2] == 205][0]
+    x, y = ob[3] + PHONE_AT[0], ob[4] + PHONE_AT[1]
+    stand = [['poke', '0x%08X=%s' % (pl[0] + 0x18, struct.pack('<iiii', x << 16, y << 16, x << 16, y << 16).hex())],
+             ['poke', '0x%08X=%02x' % (pl[0] + 0x12, PHONE_AT[2])], ['wait', 10],
+             ['press', 'A', 6], ['wait', 60], ['press', 'A', 6], ['wait', 240]]          # menu: Make a Call
+    snap = ['0x027C0000:0x200', '0x02146EB8:2', '0x%08X:0x38' % (base + sym['face']),   # the 14 faces
+            '0x%08X:1' % (base + sym['last_id']), '0x%08X:1' % (base + sym['sel']), '0x02148F44:1',
+            '0x%08X:4' % (base + sym['bar']),                          # the relationship bar (entity)
+            '0x02142084:4', '0x02300000:0x100000',                    # the selection frame (button 8)
+            '0x%08X:1' % (pl[0] + 0xC7),                               # the player's animation
+            '0x%08X:4' % (base + sym['bead']), '0x02100000:0x100000',  # the Beads picture (entity) and its memory
+            '0x020CAE0C:0x70',                                         # ui_slot_pos of slots 0xB0-0xBD
+            '0x04001000:0x10', '0x0620D800:0x800', '0x05000400:0x200'] # bottom BG controls, Pockets' panel map, BG colours
+    # sixteen people known (31-46, Kris among them; relationship 20; one s8 per person, 4 bytes apart from
+    # 0x02141154): two pages, 14 + 2
+    known = [['poke', '0x%08X=14' % (0x02141154 + 4 * k)] for k in range(16)]
+
+    def states(f):
+        d = open(f, 'rb').read()
+        st = lambda s, o: struct.unpack_from('<I', d, o + 0x8C * s)[0]
+        return st(0, 0x70), st(0, 0x74), st(1, 0x70), st(1, 0x74)
+
+    def frame_at(fp, fm):                      # where the selection frame is drawn (x, y), or None
+        c = struct.unpack('<I', open(fp, 'rb').read())[0]
+        if not 0x02300000 <= c < 0x02400000:
+            return None
+        m = open(fm, 'rb').read()
+        x, y = struct.unpack_from('<ii', m, c - 0x02300000 + 0x18)
+        return x >> 16, y >> 16
+
+    def faces(f):
+        return sum(1 for k in range(14) if struct.unpack_from('<I', open(f, 'rb').read(), 4 * k)[0])
+
+    def look(fr, fm, fp):                      # Pockets' look: BG controls, the 7 x 2 squares, Pockets' colours
+        r, m = open(fr, 'rb').read(), open(fm, 'rb').read()
+        cnt = struct.unpack_from('<4H', r, 8)
+        tile = lambda row, c: struct.unpack_from('<H', m, 2 * (32 * row + c))[0]
+        # on an inside row (map row 4): plain at column 1, the left edge at 2, the same edge between two squares
+        # at 6, 10 ... 26, the right edge at 30 (Pockets' own panel has a gap at columns 9-12)
+        edges = len(set(tile(4, 6 + 4 * k) for k in range(6))) == 1 and tile(4, 2) != tile(4, 1) \
+            and tile(4, 30) != tile(4, 6)
+        return (cnt[0], cnt[1], cnt[3]) == (0x1C09, 0x1B02, 0x1F11) and edges and \
+            open(fp, 'rb').read() == POCKETS_BG_COLOURS[0]
+
+    def slots(f):                              # slots 0xB0-0xBD: (x, y) of each
+        d = open(f, 'rb').read()
+        return [struct.unpack_from('<hh', d, 8 * k) for k in range(14)]
+
+    # the real Pockets' BG colours (the bag, then Pockets, in the same game) for look(): the Mixer's enter puts
+    # its own there first, and Pockets' panel showed in them (seen on the owner's melonDS)
+    POCKETS_BG_COLOURS = []
+    rp = V.run_child({'rom': os.path.abspath(rom), 'out': tempfile.mkdtemp(prefix='urbz-proof-'), 'tag': 'snap',
+                      'poke': [], 'state': state, 'snap': ['0x05000400:0x200'],
+                      'script': [['wait', 60], ['touch', 236, 166, 8], ['wait', 90], ['touch', 84, 75, 8],
+                                 ['wait', 90], ['shot', 'pockets']]}, timeout=600)
+    POCKETS_BG_COLOURS.append(open(rp['snaps'][0][1][0], 'rb').read())
+
+    def bead_shown(fp, f1, f2):                # the Beads picture: None = not made, else shown (+0xC bit 0)
+        e = struct.unpack('<I', open(fp, 'rb').read())[0]
+        for lo, f in ((0x02100000, f1), (0x02300000, f2)):
+            if lo <= e < lo + 0x100000:
+                return bool(struct.unpack_from('<I', open(f, 'rb').read(), e - lo + 0xC)[0] & 1)
+        return None
+    out, null_hits = {}, {}
+    for name, steps in (('call', [['press', 'DOWN', 6], ['wait', 20], ['press', 'A', 6], ['wait', 120],
+                                          ['shot', 'open'], ["touch", 236, 94, 6], ['wait', 120], ['shot', 'page2'],
+                                          ["touch", 20, 94, 6], ['wait', 120], ['shot', 'back'],
+                                          ["touch", 236, 94, 6], ['wait', 120],
+                                          ['touch', 36, 36, 6], ['wait', 30], ['shot', 'picked'],
+                                          ['touch', 36, 36, 6], ['wait', 240], ['shot', 'after'],
+                                          ['press', 'A', 6], ['wait', 120], ['shot', 'hung']]),
+                        ('invite', [['press', 'DOWN', 6], ['wait', 20], ['press', 'DOWN', 6], ['wait', 20],
+                                    ['press', 'A', 6], ['wait', 120], ['shot', 'open'],
+                                    ['touch', 128, 179, 6], ['wait', 240], ['shot', 'after']]),
+                        # the D-pad: the first is selected from the start; right, right, down (the 9th), R (next
+                        # page), left (back to the 12th), A calls it
+                        ('keys', [['press', 'DOWN', 6], ['wait', 20], ['press', 'A', 6], ['wait', 120]] + sum(
+                            ([['press', key, 4], ['wait', wt], ['shot', 'k%d' % n]] for n, (key, wt) in enumerate(
+                                [('RIGHT', 20), ('RIGHT', 20), ('DOWN', 20), ('R', 90), ('LEFT', 90)])), [])
+                         + [['press', 'A', 4], ['wait', 240], ['shot', 'after']]),
+                        # person 31 at relationship -20 and the last one called: the game's list leaves them out;
+                        # two touches on the first face call the next one
+                        ('negative', [['press', 'DOWN', 6], ['wait', 20], ['press', 'A', 6], ['wait', 120],
+                                      ['shot', 'open'], ['touch', 36, 36, 6], ['wait', 30], ['shot', 'once'],
+                                      ['touch', 36, 36, 6], ['wait', 240], ['shot', 'after']])):
+        neg = [['poke', '0x02141154=ec'], ['poke', '0x%08X=1f' % (base + sym['last_id'])]] if name == 'negative' else []
+        if name == 'keys':                     # person 32 (the 2nd face) gave you their Beads (bead_given)
+            neg = [['poke', '0x0214115A=01']]
+        j = job((known if name != 'invite' else []) + neg + stand + steps, snap)
+        # a button the game expects but mode 7 lacks is a null pointer (its flags at 0x0C). DeSmuME lets that
+        # pass; melonDS and the DS stop (data abort, black screens): any touch of 0x08-0x17 fails the proof
+        j['watch'] = ['read:0x8:0x10', 'write:0x8:0x10']
+        res = V.run_child(j, timeout=1200)
+        null_hits[name] = sum(res.get('watch', {}).get('counts', {}).values())
+        byte = lambda f: struct.unpack('b', open(f, 'rb').read(1))[0]
+        out[name] = {tag: (states(files[0]), struct.unpack('<H', open(files[1], 'rb').read())[0], faces(files[2]),
+                           byte(files[3]) & 0xFF, byte(files[4]), byte(files[5]) & 0xFF,
+                           struct.unpack('<I', open(files[6], 'rb').read())[0], frame_at(files[7], files[8]),
+                           open(files[9], 'rb').read()[0], bead_shown(files[10], files[11], files[8]),
+                           slots(files[12]), look(files[13], files[14], files[15]))
+                     for tag, files in res['snaps']}
+        for f in glob.glob(os.path.join(j['out'], 'snap_*.png')):
+            shutil.copy(f, os.path.join(OUT, 'phone-screen-%s-%s' % (name, os.path.basename(f).split('_', 1)[1])))
+    c, i = out['call'], out['invite']
+    opened = c['open'][0] == (37, 7, 31, 7) and i['open'][0] == (37, 7, 31, 7)
+    paged = c['open'][2] == 14 and c['page2'][0] == (37, 7, 31, 7) and c['page2'][2] == 2 and c['back'][2] == 14
+    called = c['after'][0][0] == 2 and c['after'][0][2] == 34 and 1057 <= c['after'][1] < 1144   # 2: the answer's box
+    hung = i['after'][0][0] == 1 and i['after'][0][2] == 34
+    no_null = not any(null_hits.values())
+    k, ng = out['keys'], out['negative']
+    keys = [k['k%d' % n][4] for n in range(5)] == [1, 2, 9, 0, 13] and k['after'][0][0] == 2 and k['after'][3] == 44
+    bar = all(k['k%d' % n][6] for n in range(5)) and not k['after'][6]    # made with the screen, freed when it goes
+    # the Beads under the bar only for person 32 (selection 1 on page 1); freed with the screen
+    beads = [k['k%d' % n][9] for n in range(5)]
+    bead_ok = beads == [True, False, False, False, False] and k['after'][9] is None
+    # the frame on the square selected: 32 px apart from (36, 36), 7 across
+    sq = lambda q: (36 + 32 * (q % 7), 36 + 32 * (q // 7))
+    frames = [k['k%d' % n][7] for n in range(5)]
+    framed = frames == [sq(q) for q in (1, 2, 9, 0, 13)]
+    # Pockets' look while open; the squares' slots moved while open and the game's own back after (the
+    # Mixer's 8 squares and its blender's)
+    game_slots = [(23 + 32 * (q % 4), 38 + 32 * (q // 4)) for q in range(8)] + [(209, 49), (209, 81), (209, 113), (208, 93), (206, 80), (208, 151)]
+    pockets = c['open'][11] and k['k3'][11] and c['open'][10] == [sq(q) for q in range(14)] and \
+        c['after'][10] == game_slots and i['after'][10] == game_slots
+    # back in the city the player picks up the home phone (the game's own animation 0x51), holds it while the
+    # answer is shown, then puts it down (stands, 0x04)
+    on_phone = c['after'][8] == 0x51 and k['after'][8] == 0x51 and c['hung'][0][0] == 1 and c['hung'][8] == 0x04
+    neg = ng['open'][5] == 15 and ng['open'][4] == 0 and ng['once'][0] == (37, 7, 31, 7) and         ng['after'][0][0] == 2 and ng['after'][3] == 32
+    return opened and paged and called and hung and no_null and keys and neg and bar and framed and on_phone and bead_ok \
+        and pockets, 'Pockets look while open %s, squares\' slots while open %s, after %s; ' % (
+            c['open'][11], c['open'][10] == [sq(q) for q in range(14)], c['after'][10] == game_slots) + \
+        'Beads shown for the D-pad selections %s, after %s; ' % (beads, k['after'][9]) + 'open (top state, mode, bottom state, mode): call %s, ' \
+        'invite %s; faces: page 1 %d, page 2 %d; after two touches %s with the answer string %d; after ' \
+        'hanging up %s; touches of 0x08-0x17 (a null button): %s; D-pad selections %s, A called %d; with person 31 '         'at -20 and last called: %d listed, selection %d, two touches called %d; relationship bar while open %s, '         'after %s; selection frame at %s; player animation during the answer %02x / %02x, after it %02x' % (
+            c['open'][0], i['open'][0], c['open'][2], c['page2'][2], c['after'][0], c['after'][1], i['after'][0],
+            null_hits, [k['k%d' % n][4] for n in range(5)], k['after'][3], ng['open'][5], ng['open'][4],
+            ng['after'][3], all(k['k%d' % n][6] for n in range(5)), bool(k['after'][6]), frames, c['after'][8],
+            k['after'][8], c['hung'][8])
+
+
+def p_cellphone():
+    """The Cellphone (mods/cellphone, with mods/phone): a 5th Urb Info button in the middle (128,88) uses the
+    phone wherever the player is (the city save: a street, no phone there). Away from home the phone's only
+    choice is Call Friend, so there is no question box (2026-11-20, owner): the touch opens the faces at once.
+    Real touches: Urb Info shows 5 buttons; Cellphone opens top 37 / bottom 31 in mode 7 with 11 faces (11 people
+    known) within 90 frames, the top screen never showing the question box (state 2) on the way; two touches on the first face: the game's answer box (top state 2), the player holding the phone
+    (animation 0x51) on the same spot; after the answer they put it down (0x04) and the city is back.
+    No touch of 0x08-0x17 (a null button). With the Phone mod switched off, the button uses the game's own box
+    of names instead (top state 2, no faces; proof cellphone-alone makes the call that way) and Urb Info stays
+    open with its buttons. The button shows mods/cellphone/icon.png (every opaque pixel, in the city screenshot).
+    build/proofs/cellphone-*.png"""
+    import urbz_verify as V
+    rom, log = build('cellphone', [os.path.join(KIT, 'mods', 'phone'), os.path.join(KIT, 'mods', 'cellphone')])[:2]
+    base = int(re.search(r'code mod phone: .* at ([0-9a-f]{8})', log).group(1), 16)
+    face = base + json.load(open(os.path.join(KIT, 'mods', 'phone', 'code', 'build', 'patch.json')))['symbols']['face']
+    state = V.city_state(os.path.abspath(rom))
+    known = [['poke', '0x%08X=14' % (0x02141154 + 4 * k)] for k in range(10)]
+    snap = ['0x027C0000:0x200', '0x%08X:0x38' % face, MEM_HI]
+    call = [['wait', 60], ['shot', 'city'], ['touch', 128, 88, 6]] + [['wait', 6], ['shot', 'menu']] * 15 + [
+            ['wait', 60], ['shot', 'open'],
+            ['touch', 36, 36, 6], ['wait', 30], ['touch', 36, 36, 6]] + \
+        [['press', 'RIGHT', 4], ['wait', 1]] * 20 + [['shot', 'soon'], ['wait', 160], ['shot', 'answer'],
+         ['press', 'A', 6], ['wait', 120], ['shot', 'hung'], ['press', 'RIGHT', 40], ['wait', 10], ['shot', 'walk']]
+    off = [['poke', core_request(rom, 0, 0)], ['wait', 60], ['touch', 128, 88, 6], ['wait', 150], ['shot', 'off']]
+    out, null_hits, tops = {}, {}, []
+    for name, steps in (('call', known + call), ('off', known + off)):
+        j = {'rom': os.path.abspath(rom), 'out': tempfile.mkdtemp(prefix='urbz-proof-'), 'tag': 'snap', 'poke': [],
+             'state': state, 'script': steps, 'snap': snap, 'watch': ['read:0x8:0x10', 'write:0x8:0x10']}
+        res = V.run_child(j, timeout=900)
+        null_hits[name] = sum(res.get('watch', {}).get('counts', {}).values())
+        for tag, files in res['snaps']:
+            d = open(files[0], 'rb').read()
+            if tag == 'menu':                  # every 6 frames after the touch: the top screen's states
+                tops.append(struct.unpack_from('<I', d, 0x70)[0])
+            st = lambda s, o: struct.unpack_from('<I', d, o + 0x8C * s)[0]
+            faces = sum(1 for k in range(14) if struct.unpack_from('<I', open(files[1], 'rb').read(), 4 * k)[0])
+            pl = [e for e in _world_full(open(files[2], 'rb').read()) if e[1] == 0]
+            out[tag] = ((st(0, 0x70), st(0, 0x74), st(1, 0x70), st(1, 0x74)), faces,
+                        (pl[0][3], pl[0][4], pl[0][7], pl[0][5]) if pl else None)
+        for f in glob.glob(os.path.join(j['out'], 'snap_*.png')):
+            shutil.copy(f, os.path.join(OUT, 'cellphone-%s' % os.path.basename(f).split('_', 1)[1]))
+    city, menu, opn, ans, hung, offs = out['city'], out['menu'], out['open'], out['answer'], out['hung'], out['off']
+    no_box = 2 not in tops and menu[0] == (37, 7, 31, 7)   # straight to the faces, never the question box
+    opened = opn[0] == (37, 7, 31, 7) and opn[1] == 11
+    called = ans[0][0] == 2 and ans[0][2] == 34 and ans[2] and ans[2][2] == 0x51
+    same_spot = city[2] and ans[2] and abs(ans[2][0] - city[2][0]) <= 2 and abs(ans[2][1] - city[2][1]) <= 2
+    put_down = hung[0][0] == 1 and hung[0][2] == 34 and hung[2] and hung[2][2] == 0x04
+    # owner 2026-11-20: the answer came late and the Sim could walk off before it. Now: the answer is up within
+    # 100 frames of the second touch (it was ~144), the D-pad held all that time moves nobody (state 0), and
+    # after hanging up the Sim walks again (state 0x10, the D-pad moves them)
+    soon, walk = out['soon'], out['walk']
+    quick = soon[0][0] == 2 and soon[2] and soon[2][3] == 0 and soon[2][:2] == ans[2][:2]
+    free = hung[2] and hung[2][3] == 0x10 and walk[2] and walk[2][:2] != hung[2][:2]
+    refused = offs[0][0] == 2 and offs[0][2] == 34 and offs[1] == 0      # the game's box, not the faces
+    # The button's picture: mods/cellphone/icon.png (mod.json "urb_info_icon", frame 4 of Urb Info's sheet),
+    # centred on (128, 88) of the bottom screen: every opaque pixel on screen in its own colour.
+    from PIL import Image
+    sc = Image.open(os.path.join(OUT, 'cellphone-city.png')).convert('RGB')
+    ic = Image.open(os.path.join(KIT, 'mods', 'cellphone', 'icon.png')).convert('RGBA')
+    px = [((x, y), c[:3]) for y in range(32) for x in range(32) for c in [ic.getpixel((x, y))] if c[3] >= 128]
+    pic = sum(1 for (x, y), c in px
+              if max(abs(a - b) for a, b in zip(sc.getpixel((112 + x, 192 + 72 + y)), c)) <= 12)
+    # Phone mod off: Urb Info stays open, its button still drawn (owner's report 2026-11-20: it vanished).
+    so = Image.open(os.path.join(OUT, 'cellphone-off.png')).convert('RGB')
+    kept = sum(1 for (x, y), c in px
+               if max(abs(a - b) for a, b in zip(so.getpixel((112 + x, 192 + 72 + y)), c)) <= 12)
+    refused = refused and kept == len(px)
+    ok = no_box and opened and called and same_spot and put_down and refused and not any(null_hits.values()) and pic == len(px) \
+        and quick and free
+    return ok, '100 frames after the call, D-pad held: top state %d, player %s; after hanging up %s, then the D-pad: %s; ' % (
+        soon[0][0], soon[2], hung[2], walk[2]) + 'icon.png on screen: %d/%d pixels; top states after the touch %s (2 = the question box); ' \
+        'open (top state, mode, bottom state, mode) %s with %d faces; ' \
+        'after two touches %s, player %s (was %s); after the answer %s, player %s; Phone mod off: %s (2 = the game box), Urb Info still open (%d/%d icon pixels); ' \
+        'touches of 0x08-0x17: %s' % (pic, len(px), tops, opn[0], opn[1], ans[0], ans[2], city[2], hung[0], hung[2],
+                                      offs[0], kept, len(px), null_hits)
+
+
+def p_cellphone_alone():
+    """The Cellphone with no Phone mod in the ROM (owner 2026-11-20: it must not depend on it). On a street (the
+    city save, 10 people known): Cellphone picks up (0x51), then the game's own box of 4 names (top state 2;
+    away from home Call Friend is the only choice, so no question box first); DOWN, A (the first name; item 0
+    is "next"): the game's answer (top state 2, a string of phone_call: 1057-1147), holding the phone; A, and
+    they put it down (0x04) and the city is back (top 1). build/proofs/cellphone-alone-*.png"""
+    import urbz_verify as V
+    rom = build('cellphone-alone', [os.path.join(KIT, 'mods', 'cellphone')])[0]
+    state = V.city_state(os.path.abspath(rom))
+    known = [['poke', '0x%08X=14' % (0x02141154 + 4 * k)] for k in range(10)]
+    steps = known + [['wait', 60], ['touch', 128, 88, 6], ['wait', 90], ['shot', 'names'], ['press', 'DOWN', 6],
+                     ['wait', 20], ['press', 'A', 6], ['wait', 90], ['shot', 'answer'], ['press', 'A', 6],
+                     ['wait', 120], ['shot', 'hung']]
+    j = {'rom': os.path.abspath(rom), 'out': tempfile.mkdtemp(prefix='urbz-proof-'), 'tag': 'snap', 'poke': [],
+         'state': state, 'script': steps, 'snap': ['0x027C0000:0x200', '0x02146EB8:2', MEM_HI]}
+    res = V.run_child(j, timeout=900)
+    out = {}
+    for tag, files in res['snaps']:
+        d = open(files[0], 'rb').read()
+        pl = [e for e in _world_full(open(files[2], 'rb').read()) if e[1] == 0]
+        out[tag] = (struct.unpack_from('<I', d, 0x70)[0], struct.unpack('<H', open(files[1], 'rb').read())[0],
+                    pl[0][7] if pl else None)
+    for f in glob.glob(os.path.join(j['out'], 'snap_*.png')):
+        shutil.copy(f, os.path.join(OUT, 'cellphone-alone-%s' % os.path.basename(f).split('_', 1)[1]))
+    nm, ans, hung = out['names'], out['answer'], out['hung']
+    ok = nm[0] == 2 and nm[2] == 0x51 and ans[0] == 2 and 1057 <= ans[1] <= 1147 and ans[2] == 0x51         and hung[0] == 1 and hung[2] == 0x04
+    return ok, '(top state, string, player animation): names box %s, answer %s, after %s' % (nm, ans, hung)
+
+
+def p_pay_phone():
+    """A phone away from home (mods/phone): the pay phone (206) in Urbania Park (19) offers only Call Friend, so
+    there is no question box (owner 2026-11-20): Make a Call opens the faces once the Sim has picked up. The
+    player stands at (16, 16) from the pay phone facing 0 (a spot where the game points at it: found as
+    research/objects/face_scan.py does), with 1,000 Simoleons (it costs money) and 10 people known; A, A
+    (Make a Call); the top screen, every 6 frames for 240 frames, once the menu has gone (state 1, the city),
+    never shows the question box (state 2), and
+    the faces screen opens (top 37 / bottom 31, mode 7) with 11 faces. build/proofs/pay-phone-*.png"""
+    import urbz_verify as V
+    rom, log = build('pay-phone', [os.path.join(KIT, 'mods', 'phone')])[:2]
+    base = int(re.search(r'code mod phone: .* at ([0-9a-f]{8})', log).group(1), 16)
+    face = base + json.load(open(os.path.join(KIT, 'mods', 'phone', 'code', 'build', 'patch.json')))['symbols']['face']
+    state = V.city_state(os.path.abspath(rom))
+    pts = json.load(open(V.AREAS_JSON))['areas'][19]['entry_points']
+    job = lambda script, snap: {'rom': os.path.abspath(rom), 'out': tempfile.mkdtemp(prefix='urbz-proof-'),
+                                'tag': 'snap', 'poke': [], 'state': state, 'goto': (19, pts[0]['id'] if pts else 0),
+                                'script': [['wait', 60]] + script, 'snap': snap}
+    w = _world_full(open(V.run_child(job([['shot', 'x']], [MEM_HI]), timeout=600)['snaps'][0][1][0], 'rb').read())
+    pl = [e for e in w if e[1] == 0][0]
+    ob = max((e for e in w if e[1] == 5 and e[2] == 206), key=lambda e: e[3])   # by the houses (1152, 456)
+    x, y = ob[3] + 16, ob[4] + 16
+    script = [['poke', '0x02141124=e8030000']] + \
+        [['poke', '0x%08X=14' % (0x02141154 + 4 * k)] for k in range(10)] + \
+        [['poke', '0x%08X=%s' % (pl[0] + 0x18, struct.pack('<iiii', x << 16, y << 16, x << 16, y << 16).hex())],
+         ['poke', '0x%08X=00' % (pl[0] + 0x12)], ['wait', 10], ['press', 'A', 6], ['wait', 60], ['shot', 'menu'],
+         ['press', 'A', 6]] + [['wait', 6], ['shot', 't']] * 40 + [['shot', 'open']]
+    j = job(script, ['0x027C0000:0x200', '0x%08X:0x38' % face])
+    res = V.run_child(j, timeout=900)
+    seq = []
+    for tag, files in res['snaps']:
+        d = open(files[0], 'rb').read()
+        st = lambda s, o: struct.unpack_from('<I', d, o + 0x8C * s)[0]
+        seq.append((tag, (st(0, 0x70), st(0, 0x74), st(1, 0x70), st(1, 0x74)),
+                    sum(1 for k in range(14) if struct.unpack_from('<I', open(files[1], 'rb').read(), 4 * k)[0])))
+    for f in glob.glob(os.path.join(j['out'], 'snap_*.png')):
+        shutil.copy(f, os.path.join(OUT, 'pay-phone-%s' % os.path.basename(f).split('_', 1)[1]))
+    menu, tops, opn = seq[0], [s[1][0] for s in seq[1:-1]], seq[-1]
+    after = tops[tops.index(1):] if 1 in tops else [2]       # from when the menu has closed (the city, 1)
+    ok = menu[1][0] == 2 and 2 not in after and opn[1] == (37, 7, 31, 7) and opn[2] == 11
+    return ok, 'Make a Call menu: top state %d; top states every 6 frames after it %s (2 = a box); then %s with %d ' \
+        'faces' % (menu[1][0], tops, opn[1], opn[2])
+
+
+def p_auto_interact():
+    """Auto Interact (mods/auto-interact): A at an object with exactly one choice does it at once. In Urbania
+    Park (19) the pay phone (206) has one choice (Make a Call; the Sim has 1,000 Simoleons and knows 10 people, as in pay-phone). The player stands at (16, 16) from it facing 0
+    (as pay-phone) and presses A once. Vanilla: the question box is up 8 frames later (top state 2, the
+    game's choice list holds 1 entry). With the mod: no box (top state 1 at the same moment; the phone's own box of names comes later, when the Sim has walked up), the Sim has left
+    the standing state 0x10 (walking to the phone), the mod counted a skipped box and no asked one. Control:
+    a chair at home (Sit, Put in Pocket, Move = 3 choices): the box still opens with the mod
+    (top state 2) and the mod counted it as asked. build/proofs/auto-interact-*.png"""
+    import urbz_verify as V
+    mod = os.path.join(KIT, 'mods', 'auto-interact')
+    van = build('auto-interact-vanilla', [])[0]
+    rom, log = build('auto-interact', [mod])[:2]
+    base = int(re.search(r'code mod auto-interact: .* at ([0-9a-f]{8})', log).group(1), 16)
+    sym = base + json.load(open(os.path.join(mod, 'code', 'build', 'patch.json')))['symbols']['auto_interact']
+    pts = json.load(open(V.AREAS_JSON))['areas'][19]['entry_points']
+
+    def street(r, tag):
+        state = V.city_state(os.path.abspath(r))
+        job = lambda script, snap: {'rom': os.path.abspath(r), 'out': tempfile.mkdtemp(prefix='urbz-proof-'),
+                                    'tag': 'snap', 'poke': [], 'state': state,
+                                    'goto': (19, pts[0]['id'] if pts else 0), 'script': [['wait', 60]] + script,
+                                    'snap': snap}
+        w = _world_full(open(V.run_child(job([['shot', 'x']], [MEM_HI]), timeout=600)['snaps'][0][1][0], 'rb').read())
+        pl = [e for e in w if e[1] == 0][0]
+        ob = max((e for e in w if e[1] == 5 and e[2] == 206), key=lambda e: e[3])
+        x, y = ob[3] + 16, ob[4] + 16
+        script = [['poke', '0x02141124=e8030000']] +             [['poke', '0x%08X=14' % (0x02141154 + 4 * k)] for k in range(10)] +             [['poke', '0x%08X=%s' % (pl[0] + 0x18, struct.pack('<iiii', x << 16, y << 16, x << 16, y << 16).hex())],
+             ['poke', '0x%08X=00' % (pl[0] + 0x12)], ['wait', 10], ['shot', 'before'], ['press', 'A', 6],
+             ['wait', 8], ['shot', 'after']]
+        j = job(script, ['0x027C0000:0x200', '0x%08X:0x10' % (pl[0] + 0x100), '0x%08X:16' % sym, '0x02141124:4'])
+        res = V.run_child(j, timeout=900)
+        d = open(res['snaps'][-1][1][0], 'rb').read()
+        pls = open(res['snaps'][-1][1][1], 'rb').read()
+        cnt = struct.unpack('<4I', open(res['snaps'][-1][1][2], 'rb').read())
+        for f in glob.glob(os.path.join(j['out'], 'snap_*.png')):
+            shutil.copy(f, os.path.join(OUT, 'auto-interact-%s-%s' % (tag, os.path.basename(f).split('_', 1)[1])))
+        return struct.unpack_from('<I', d, 0x70)[0], pls[4], cnt[1], cnt[2], struct.unpack('<I', open(res['snaps'][-1][1][3], 'rb').read())[0]
+
+    v_top, v_pl, _, _, v_gold = street(van, 'vanilla')
+    m_top, m_pl, skipped, asked, m_gold = street(rom, 'mod')
+    r, ev = use_object(rom, 136, CHAIR_AT, ['A'], [['wait', 30]], reads=['0x027C0000:0x200', '0x%08X:16' % sym])
+    c_top = struct.unpack_from('<I', r['0x027C0000:0x200'], 0x70)[0]
+    c_skipped, c_asked = struct.unpack('<4I', r['0x%08X:16' % sym])[1:3]
+    ok = (v_top == 2 and m_top == 1 and m_pl != 0x10 and skipped >= 1 and asked == 0 and v_gold == 1000 and m_gold < 1000
+          and c_top == 2 and c_asked >= 1 and c_skipped == 0)
+    return ok, 'pay phone, A once, 8 frames later: vanilla top state %d (2 = the box), player state 0x%02X; with '         'the mod top state %d, player state 0x%02X (0x10 = standing), boxes skipped %d, asked %d, Simoleons %d (vanilla %d: the phone is paid only once used); control, a home '         'chair (3 choices): top state %d, skipped %d, asked %d' % (v_top, v_pl, m_top, m_pl, skipped, asked, m_gold, v_gold,
+                                                                  c_top, c_skipped, c_asked)
+
+
 PET_ACTIONS = ['stand', 'walk', 'sit', 'lie', 'sleep', 'sniff', 'play', 'eat', 'happy', 'sad', 'petted', 'scratch',
                'bedsleep', 'bedlie']
 
@@ -2848,6 +3217,429 @@ def _concat(*scripts):
     return p
 
 
+# ---- Walk Style (2026-11-19) ------------------------------------------------------------------------------
+WALK_MAGIC = 0x4B4C4157          # 'WALK': mods/walk-style/code/main.c
+WALK_STYLES = [("Game's own", None), ('Normal', 0x0A), ('Streetie', 0x0E), ('Nerdie', 0x0C), ('Richie', 0x0D), ('Artsie', 0x0B)]
+
+
+def p_walk_style():
+    """Walk Style (mods/walk-style): real taps open Options > Mods > Walk Style, whose page shows the four Rep
+    group pictures (core: mod_page_t.icon); tapping Nerdies picks it, tapping it again goes back to the game's
+    own, and L from there wraps to Artsie (the core passes R / L to pages that fit): style 5. Then for every style the player walks (left, then down) and
+    the answer of walk_pick at its call in player_play_anim (r0 at 0x02037934) is the style's animation. A sheet
+    of each walk mid-step: build/proofs/walk-style-walks.png; the page: walk-style-page.png."""
+    from PIL import Image, ImageDraw
+    rom = build('walk-style', [os.path.join(KIT, 'mods', 'walk-style')])[0]
+    _, addr = find_magic(rom, 1, WALK_MAGIC, 16)
+    taps = [['wait', 30], ['touch', 128, 180, 8], ['wait', 60], ['touch', 61, 120, 8], ['wait', 60],
+            ['touch', 192, 28, 8], ['wait', 60], ['touch', 86, 124, 8], ['wait', 40], ['shot', 'page'],
+            ['touch', 86, 124, 8], ['wait', 40], ['press', 'L', 4], ['wait', 30]]
+    p = os.path.join(tempfile.mkdtemp(prefix='urbz-proof-'), 's.json')
+    json.dump(taps, open(p, 'w'))
+    out = run(VERIFY + ['ram', rom, '--city', '--script', p, '--frames', '1', '--read', '0x%08X:16' % addr])
+    picked = bytes.fromhex([l for l in out.splitlines() if ' = ' in l][0].split(' = ')[1].strip())[4]
+    _shot(out.strip().splitlines()[-1].split('evidence: ')[-1], 'page', 'walk-style-page.png')
+    json.dump([['wait', 30], ['press', 'LEFT', 60], ['press', 'DOWN', 60]], open(p, 'w'))
+    sheet_script = [['wait', 30], ['hold', 'LEFT']] + sum([[['wait', 5], ['shot', 'f%d' % k]] for k in range(6)], []) +         [['release', 'LEFT']]
+    q = os.path.join(os.path.dirname(p), 'sheet.json')
+    json.dump(sheet_script, open(q, 'w'))
+    sheet = Image.new('RGB', (80 + 6 * 128, len(WALK_STYLES) * 160), 'white')
+    d = ImageDraw.Draw(sheet)
+    ok, res = picked == 5, []
+    for i, (name, want) in enumerate(WALK_STYLES):
+        poke = ['--poke', '0x%08X=%02x' % (addr + 4, i)]
+        w = run(VERIFY + ['watch', rom, '--city', '--script', p, '--frames', '10', '--hook', 'exec:0x02037934'] + poke)
+        got = sorted({int(h[5], 16) for h in (l.split() for l in w.splitlines())
+                      if len(h) >= 7 and h[0].isdigit() and h[1] == 'exec'} - {4})
+        ok = ok and got == [want if want else 0x0A]            # this save's player has no group walk: the game says 0x0A
+        res.append('%s %s' % (name, '/'.join('%02x' % g for g in got)))
+        ev = run(VERIFY + ['ram', rom, '--city', '--script', q, '--frames', '1', '--read', '0x02000000:4'] + poke)
+        ev = ev.strip().splitlines()[-1].split('evidence: ')[-1]
+        d.text((4, i * 160 + 70), name, fill='black')
+        for k in range(6):
+            f = glob.glob(os.path.join(ev, '*_f%d.png' % k))
+            if f:
+                im = Image.open(f[0]).crop((100, 50, 164, 130)).resize((128, 160), 0)
+                sheet.paste(im, (80 + k * 128, i * 160))
+    sheet.save(os.path.join(OUT, 'walk-style-walks.png'))
+    return ok, 'style after tap Nerdies, tap again, L: %d (5 = Artsie); walk animation per style: %s; build/proofs/walk-style-*.png' % (
+        picked, ', '.join(res))
+
+
+QS_MAGIC = 0x41545351                          # 'QSTA': mods/quick-start's state
+
+
+def _qs_state(rom, sav, frames=200, script=None):
+    """Quick Start's state after a power-on with `sav` (None = blank cartridge): (dict, evidence dir)."""
+    reg = '0x%08X:0x8000' % CODE_BASE
+    cmd = VERIFY + ['ram', rom, '--frames', str(frames), '--read', reg] + (['--sav', sav] if sav else [])
+    if script:
+        cmd += ['--script', script]
+    out = run(cmd)
+    b = bytes.fromhex([l for l in out.splitlines() if l.startswith(reg)][0].split(' = ')[1].strip())
+    i = b.find(struct.pack('<I', QS_MAGIC))
+    if i < 0:
+        raise RuntimeError('quick-start state not found')
+    v = struct.unpack_from('<4B4H2B', b, i + 4)
+    st = dict(zip('choice from_save did slot stamp1 stamp2 next scans valid1 valid2'.split(), v))
+    st['addr'] = CODE_BASE + i
+    return st, out.strip().splitlines()[-1].split('evidence: ')[-1]
+
+
+def p_quick_start():
+    """Quick Start (mods/quick-start): no logos, no title menu. From power-on with city.sav (slot 1 only) and no
+    input, game_start runs in load mode (r0 1, mode 5) in under 120 frames (the normal way, with the presses of
+    verify/scripts/loadgame.json, is about 2,040) and the city is drawn (build/proofs/quick-start-city.png).
+    The page (Options > Mods > Quick Start, R) changes the choice; a game saved with the choice "Slot 2" keeps it
+    (4 bytes in the slot's mod data) and the next power-on reads it from the cartridge: slot 2 is empty, so the
+    title. Saves with both slots (slot 2 = a copy of slot 1, other choices and save numbers): "Last saved" loads
+    the slot saved last, "Slot 1" slot 1, "Title screen" the title. Holding SELECT and a blank cartridge: the title."""
+    import urbz_save as us
+    rom = build('quick-start', [os.path.join(KIT, 'mods', 'quick-start')])[0]
+    city = os.path.join(KIT, 'verify', 'saves', 'city.sav')
+    tmp = tempfile.mkdtemp(prefix='urbz-proof-')
+
+    def script(name, steps):
+        p = os.path.join(tmp, name + '.json')
+        json.dump(steps, open(p, 'w'))
+        return p
+
+    res, ok = [], True
+    w = run(VERIFY + ['watch', rom, '--sav', city, '--frames', '300', '--hook', 'exec:0x0204BA98',
+                      '--script', script('shot', [['wait', 299], ['shot', 'city']])])
+    hits = [l.split() for l in w.splitlines() if l.strip()[:1].isdigit() and ' exec ' in l]
+    start = [int(h[0]) for h in hits if h[1] == 'exec' and int(h[5], 16) == 1 and h[6] == '5']
+    _shot(w.strip().splitlines()[-1].split('evidence: ')[-1], 'city', 'quick-start-city.png')
+    ok = ok and bool(start) and start[0] < 120
+    res.append('load from power-on at frame %s' % (start[0] if start else 'never'))
+
+    st, ev = _qs_state(rom, city, 1, script('page', [
+        ['wait', 300], ['touch', 128, 180, 8], ['wait', 60], ['touch', 61, 120, 8], ['wait', 60],
+        ['touch', 192, 28, 8], ['wait', 60], ['press', 'R', 4], ['wait', 40], ['shot', 'page']]))
+    _shot(ev, 'page', 'quick-start-page.png')
+    ok = ok and st['did'] == 1 and st['slot'] == 0 and st['choice'] == 1
+    res.append('loaded slot %d, page R -> choice %d' % (st['slot'] + 1, st['choice']))
+
+    addr = st['addr']
+    save = json.load(open(os.path.join(KIT, 'verify', 'scripts', 'savegame.json')))
+    sav = play_export(rom, 'quick-start-saved', ['--sav', city],
+                      script('save', [['wait', 300], ['poke', '0x%08X=02' % (addr + 4)]] + save))
+    buf = bytearray(open(sav, 'rb').read())
+    s0, s1, n = us.SLOTS[0], us.SLOTS[1], us.SLOT_SIZE
+    mine = [d for h, d in (us.mod_block(buf[s0:s0 + n]) or []) if len(d) == 4]
+    ok = ok and mine == [b'\x02\x00\x01\x00']
+    res.append('saved data %s' % (mine[0].hex() if mine else 'none'))
+    st, _ = _qs_state(rom, sav)
+    ok = ok and st['choice'] == 2 and st['from_save'] == 1 and st['did'] == 2
+    res.append('"Slot 2" read back at power-on: title (did %d)' % st['did'])
+
+    def two(c1, n1, c2, n2):
+        x = bytearray(buf)
+        x[s1:s1 + n] = x[s0:s0 + n]
+        for s, c, k in ((s0, c1, n1), (s1, c2, n2)):
+            i = bytes(x[s:s + n]).find(b'\x02\x00\x01\x00')
+            x[s + i:s + i + 4] = bytes([c, 0, k & 255, k >> 8])
+            us.fix_block(x, s, n)
+        p = os.path.join(tmp, 'two-%d%d%d%d.sav' % (c1, n1, c2, n2))
+        open(p, 'wb').write(x)
+        return p
+
+    for label, sv, want in (('last saved (slot 2 newer)', two(0, 1, 0, 5), (1, 1)),
+                            ('slot 1', two(1, 9, 0, 5), (1, 0)), ('title screen', two(3, 9, 0, 5), (2, None))):
+        st, _ = _qs_state(rom, sv)
+        got = (st['did'], st['slot'] if st['did'] == 1 else None)
+        ok = ok and got == want and st['valid1'] == st['valid2'] == 1
+        res.append('%s: %s' % (label, 'slot %d' % (got[1] + 1) if got[0] == 1 else 'title'))
+    st, ev = _qs_state(rom, two(0, 1, 0, 5), 1, script('toggle', [            # off and on: mod_on_enable reads
+        ['wait', 300], ['touch', 128, 180, 8], ['wait', 60], ['touch', 61, 120, 8], ['wait', 60],  # the slots again
+        ['touch', 61, 28, 8], ['wait', 60], ['touch', 61, 28, 8], ['wait', 60], ['touch', 226, 120, 8], ['wait', 30],
+        ['touch', 128, 180, 8], ['wait', 30], ['press', 'LEFT', 60], ['wait', 30], ['shot', 'walk']]))
+    ok = ok and st['scans'] == 2 and st['stamp1'] == 1 and st['stamp2'] == 5 and st['next'] > 5
+    res.append('switched off and on in the city: slots read %d times (save numbers %d, %d)' % (
+        st['scans'], st['stamp1'], st['stamp2']))
+    st, ev = _qs_state(rom, city, 300, script('select', [['hold', 'SELECT'], ['wait', 80], ['release', 'SELECT'],
+                                                        ['wait', 200], ['shot', 'title']]))
+    _shot(ev, 'title', 'quick-start-select.png')
+    ok = ok and st['did'] == 3
+    st, _ = _qs_state(rom, None)
+    ok = ok and st['did'] == 2
+    res.append('SELECT held: title; blank cartridge: title (did %d)' % st['did'])
+    return ok, '; '.join(res) + '; build/proofs/quick-start-*.png'
+
+
+def _topic_changes(person):
+    """{topic code: relationship change} from the original ROM's reply table (docs/systems.md "Chats")."""
+    import ndspy.rom
+    a = bytes(ndspy.rom.NintendoDSRom.fromFile(os.path.join(PROJ, 'base.nds')).arm9)
+    t = 0x02114698 + (person - 31) * 0x274 - 0x02000000
+    offs = {c: c * 8 for c in range(0x43)}
+    offs.update({0x15: 0xB0, 0x16: 0xA8, 0x43: 0x230, 0x46: 0x238})
+    return {c: struct.unpack_from('<b', a, t + o + 4)[0] for c, o in offs.items()}
+
+
+def _rep_bonus(rep, person):
+    """rep_bonus(rep_groups, rep_group_of(person)) (0x0207CC3C / 0x0207CCC0), from 0x02141240:0x18 and the ROM."""
+    import ndspy.rom
+    a = bytes(ndspy.rom.NintendoDSRom.fromFile(os.path.join(PROJ, 'base.nds')).arm9)
+    g = next((i for i in range(4) if person in struct.unpack_from('<8i', a, 0x020F6F34 - 0x02000000 + i * 32)), 4)
+    if g == 4:
+        return 0
+    v, mine = struct.unpack_from('<b', rep, g)[0], struct.unpack_from('<i', rep, 0x14)[0] == g
+    return (-1 if v < -1 else 0) - (v < (-4 if mine else -5)) + (v > (0 if mine else 1)) + (v > (6 if mine else 7))
+
+
+def p_friendly_topics():
+    """Friendly Topics (mods/friendly-topics): every chat shows a topic the person likes. At Slice O' Life Pizza,
+    a chat with Lottie Cash (48), then FRIENDLY STUFF twice (its sub-menu, then back) deals three new topics, 12
+    times. Each deal is checked against the ROM's reply table plus the Rep bonus: at least one choice raises the
+    relationship. The mod's counters say how many deals the game's own draw had none (the mod changed one).
+    build/proofs/friendly-topics.png is the first deal the mod changed."""
+    import urbz_verify as V
+    mod = os.path.join(KIT, 'mods', 'friendly-topics')
+    rom, log = build('friendly-topics', [mod])[:2]
+    base = int(re.search(r'code mod friendly-topics: .* at ([0-9a-f]{8})', log).group(1), 16)
+    ft = base + json.load(open(os.path.join(mod, 'code', 'build', 'patch.json')))['symbols']['friendly_topics']
+    state = V.city_state(os.path.abspath(rom))
+    who = 48
+    job = lambda script, snap: {'rom': os.path.abspath(rom), 'out': tempfile.mkdtemp(prefix='urbz-proof-'),
+                                'tag': 'snap', 'poke': [], 'state': state, 'goto': (51, 0),
+                                'script': [['wait', 120]] + script, 'snap': snap}
+    w = _world_full(open(V.run_child(job([['shot', 'x']], [MEM_HI]))['snaps'][0][1][0], 'rb').read())
+    pl = [e for e in w if e[1] == 0][0]
+    pe = [e for e in w if e[1] == 7 and e[2] == who]
+    if not pe:
+        return False, 'Lottie Cash (48) is not at the pizza place in this city state'
+    px, py = pe[0][3], pe[0][4]
+    pos = lambda x, y: struct.pack('<iiii', x << 16, y << 16, x << 16, y << 16).hex()
+    hold = [['poke', '0x%08X=%s' % (pl[0] + 0x18, pos(px, py + 14))], ['poke', '0x%08X=00' % (pl[0] + 0x12)],
+            ['poke', '0x%08X=%s' % (pe[0][0] + 0x18, pos(px, py))],
+            ['poke', '0x02141204=' + '00000064' * 8], ['wait', 4]]          # all needs full: low needs refuse chats
+    steps = hold * 5 + [['press', 'A', 4]] + hold * 15 + [['press', 'A', 4], ['wait', 60], ['shot', 'deal0']]
+    for r in range(1, 12):
+        steps += [['touch', 140, 169, 4], ['wait', 40], ['touch', 140, 169, 4], ['wait', 50], ['shot', 'deal%d' % r]]
+    res = V.run_child(job(steps, ['0x021474F8:0x18', '0x%08X:0x18' % ft, '0x02141240:0x18']), timeout=1200)
+    change = _topic_changes(who)
+    deals, bad, fixed_at, last = [], [], None, None
+    for name, files, *_ in res['snaps']:
+        talk, cnt, rep = (open(f, 'rb').read() for f in files)
+        opts, counts = talk[0x10:0x14], struct.unpack_from('<5I', cnt)
+        bonus = _rep_bonus(rep, who)
+        best = max((change[c] + bonus for c in opts if c in change), default=None)
+        deals.append(best)
+        if struct.unpack_from('<I', talk)[0] != who or opts[3] != 0x4A or best is None or best <= 0:
+            bad.append('%s %s' % (name, opts.hex()))
+        if fixed_at is None and counts[3] > (last or (0,) * 5)[3]:
+            fixed_at = name
+            shot = [f for f in glob.glob(os.path.join(os.path.dirname(files[0]), '*_%s.png' % name))]
+            if shot:
+                shutil.copy(shot[0], os.path.join(OUT, 'friendly-topics.png'))
+        last = counts
+    picks, already, fixed = last[1], last[2], last[3]
+    ok = not bad and picks == 12 and already + fixed + last[4] == picks and fixed >= 1
+    return ok, ('12 deals with Lottie Cash: best relationship change shown %s; the game\'s draw already had a liked '
+                'topic %d time(s), the mod put one in %d time(s) (first: %s)%s; build/proofs/friendly-topics.png') % (
+        deals, already, fixed, fixed_at, '; NO liked topic: %s' % bad if bad else '')
+
+
+def p_better_chat():
+    """Better Chat (mods/better-chat), with Friendly Topics on too. At Slice O' Life Pizza, a chat with Lottie Cash
+    (48) where the mod acts as if the game dealt a "!" and a "?" (test switch `force`): the rows hold 3 normal
+    topics + FRIENDLY STUFF and the two codes sit on the arrows; UP from the first row / RIGHT / DOWN move the
+    focus; one tap on a topic only selects it, two taps confirm (a reply starts); after the reply the first
+    topic is selected (the reply ended with a touch on the rows, not A); two taps on the "!" arrow start the game's
+    own reply to it."""
+    setup = _better_chat_setup()
+    if isinstance(setup, str):
+        return False, setup
+    bc, job, opening = setup
+    S = lambda name: ['shot', name]
+    steps = [['poke', '0x%08X=01' % (bc + 22)]] + opening + [S('open'),
+        ['press', 'UP', 4], ['wait', 6], S('up'), ['press', 'RIGHT', 4], ['wait', 6], S('right'), ['press', 'DOWN', 4], ['wait', 6], S('down'),
+        ['touch', 128, 104, 3], ['wait', 6], S('tap1'), ['wait', 60], ['touch', 128, 104, 3], ['wait', 4], ['touch', 128, 104, 3], ['wait', 40], S('reply'),
+        ['wait', 60], ['touch', 60, 150, 3], ['wait', 90], S('after'),
+        ['touch', 100, 22, 3], ['wait', 4], ['touch', 100, 22, 3], ['wait', 50], S('arrow')]
+    res = V_run(job(steps, ['0x%08X:0x20' % bc, '0x02147508:4', '0x027C0000:0x180']))
+    got = {}
+    for name, files, *_ in res['snaps']:
+        b, o, d = (open(f, 'rb').read() for f in files)
+        got[name] = dict(spec=tuple(b[4:6]), foc=struct.unpack('b', b[6:7])[0], taps=b[23], doubles=b[24], opts=tuple(o),
+                         sel=struct.unpack_from('<i', d, 0x78)[0], st=struct.unpack_from('<I', d, 0x84)[0],
+                         scr=b[29], now=struct.unpack_from('<I', d, 4)[0])
+    g = got
+    errs = []
+    o = g['open']
+    if o['spec'] != (0x4E, 0x53) or any(c in (0x4E, 0x53, 0x54) for c in o['opts'][:3]) or o['opts'][3] != 0x4A:
+        errs.append('open: %s' % (o,))
+    if (g['up']['foc'], g['right']['foc'], g['down']['foc'], g['down']['sel']) != (0, 1, -1, 0):
+        errs.append('focus up/right/down: %s' % ([g[k]['foc'] for k in ('up', 'right', 'down')],))
+    if not (g['tap1']['sel'] == 1 and g['tap1']['st'] == 0 and g['tap1']['doubles'] == 0):
+        errs.append('one tap did more than select: %s' % (g['tap1'],))
+    if not (g['reply']['st'] != 0 and g['reply']['doubles'] == 1):
+        errs.append('two taps did not confirm: %s' % (g['reply'],))
+    if not (g['after']['st'] == 0 and g['after']['sel'] == 0):
+        errs.append('a touch on the rows did not end the reply, or the first topic is not selected: %s' % (g['after'],))
+    if not (g['arrow']['st'] != 0 and g['arrow']['doubles'] == 2 and g['arrow']['spec'][0] == 0):
+        errs.append('two taps on the "!" arrow: %s' % (g['arrow'],))
+    for n in ('open', 'up', 'reply', 'after', 'arrow'):
+        shot = glob.glob(os.path.join(os.path.dirname(res['snaps'][0][1][0]), '*_%s.png' % n))
+        if shot and n in ('up', 'reply'):
+            shutil.copy(shot[0], os.path.join(OUT, 'better-chat-%s.png' % n))
+    return not errs, ('3 normal topics + FRIENDLY STUFF with "!" "?" on the arrows, focus up/right/down, tap selects, '
+                      'two taps confirm, a touch ends a reply, first topic after it, "!" arrow confirms (screens: built %d, run %d); build/proofs/better-chat-up.png, '
+                      'better-chat-reply.png' % (g['open']['scr'], g['open']['now'])) if not errs else '; '.join(errs)
+def _better_chat_setup():
+    """A chat with Lottie Cash (48) at Slice O' Life Pizza for the Better Chat proofs: (better_chat address, job maker,
+    the steps that walk up to her and open the chat), or an error text."""
+    import urbz_verify as V
+    mods = [os.path.join(KIT, 'mods', m) for m in ('better-chat', 'friendly-topics')]
+    rom, log = build('better-chat', mods)[:2]
+    base = int(re.search(r'code mod better-chat: .* at ([0-9a-f]{8})', log).group(1), 16)
+    bc = base + json.load(open(os.path.join(mods[0], 'code', 'build', 'patch.json')))['symbols']['better_chat']
+    state = V.city_state(os.path.abspath(rom))
+    who = 48
+    job = lambda script, snap: {'rom': os.path.abspath(rom), 'out': tempfile.mkdtemp(prefix='urbz-proof-'),
+                                'tag': 'snap', 'poke': [], 'state': state, 'goto': (51, 0),
+                                'script': [['wait', 120]] + script, 'snap': snap}
+    w = _world_full(open(V.run_child(job([['shot', 'x']], [MEM_HI]))['snaps'][0][1][0], 'rb').read())
+    pl = [e for e in w if e[1] == 0][0]
+    pe = [e for e in w if e[1] == 7 and e[2] == who]
+    if not pe:
+        return 'Lottie Cash (48) is not at the pizza place in this city state'
+    px, py = pe[0][3], pe[0][4]
+    pos = lambda x, y: struct.pack('<iiii', x << 16, y << 16, x << 16, y << 16).hex()
+    hold = [['poke', '0x%08X=%s' % (pl[0] + 0x18, pos(px, py + 14))], ['poke', '0x%08X=00' % (pl[0] + 0x12)],
+            ['poke', '0x%08X=%s' % (pe[0][0] + 0x18, pos(px, py))],
+            ['poke', '0x02141204=' + '00000064' * 8], ['wait', 4]]
+    return bc, job, hold * 5 + [['press', 'A', 4]] + hold * 15 + [['press', 'A', 4], ['wait', 60]]
+
+
+def p_better_chat_four():
+    """Better Chat's option "4 topics" (poked on, with the "!" and "?" forced as in better-chat): the rows hold 4
+    normal topics, FRIENDLY STUFF sits on the green tick; UP, RIGHT, RIGHT moves the focus to it; two taps on the
+    tick open FRIENDLY STUFF's sub-menu; its BACK row deals a new topic list, again 4 topics + FRIENDLY STUFF on the tick."""
+    setup = _better_chat_setup()
+    if isinstance(setup, str):
+        return False, setup
+    bc, job, opening = setup
+    S = lambda name: ['shot', name]
+    steps = [['poke', '0x%08X=01' % (bc + 22)], ['poke', '0x%08X=01' % (bc + 31)]] + opening + [S('open'),
+        ['press', 'UP', 4], ['wait', 6], ['press', 'RIGHT', 4], ['wait', 6], ['press', 'RIGHT', 4], ['wait', 6], S('tick'),
+        ['touch', 212, 22, 3], ['wait', 4], ['touch', 212, 22, 3], ['wait', 60], S('friendly'),
+        ['touch', 60, 167, 3], ['wait', 60], S('back')]
+    res = V_run(job(steps, ['0x%08X:0x24' % bc, '0x02147508:4', '0x027C0000:0x180']))
+    got = {}
+    for name, files, *_ in res['snaps']:
+        b, o, d = (open(f, 'rb').read() for f in files)
+        got[name] = dict(spec=tuple(b[4:6]) + (b[33],), foc=struct.unpack('b', b[6:7])[0], doubles=b[24],
+                         opts=tuple(o), sel=struct.unpack_from('<i', d, 0x78)[0], st=struct.unpack_from('<I', d, 0x84)[0])
+        shot = glob.glob(os.path.join(os.path.dirname(files[0]), '*_%s.png' % name))
+        if shot:
+            shutil.copy(shot[0], os.path.join(OUT, 'better-chat-four-%s.png' % name))
+    g, errs = got, []
+    o = g['open']
+    if o['spec'] != (0x4E, 0x53, 0x4A) or any(c in (0x4A, 0x4E, 0x53, 0x54) for c in o['opts']) or len(set(o['opts'])) != 4:
+        errs.append('open: %s' % (o,))
+    if g['tick']['foc'] != 2:
+        errs.append('UP RIGHT RIGHT: %s' % (g['tick'],))
+    f = g['friendly']
+    if not (f['st'] == 1 and f['opts'][0] == 0x4B and f['opts'][3] == 0x4A):
+        errs.append('two taps on the tick did not open FRIENDLY STUFF: %s' % (f,))
+    b = g['back']
+    if not (b['st'] == 0 and b['spec'][2] == 0x4A and not any(c in (0x4A, 0x4E, 0x53, 0x54) for c in b['opts'])):
+        errs.append('back from FRIENDLY STUFF: %s' % (g['back'],))
+    return not errs, ('4 normal topics, FRIENDLY STUFF on the tick, focus moves to it, two taps open its sub-menu, its '
+                      'BACK deals 4 again; build/proofs/better-chat-four-*.png') if not errs else '; '.join(errs)
+
+
+def V_run(j):
+    import urbz_verify as V
+    return V.run_child(j, timeout=1200)
+
+
+
+
+CRATE_READS = ['0x02141328:2', '0x02141730:12', '0x02141338:1', '0x0214188C:12', '0x02141FEC:4', '0x02141230:2']
+
+
+def p_moving_crate():
+    """Moving Crate (mods/moving-crate): the crate stays, holds your things and can be moved. From the apartment save
+    (just moved into the Small Brownstone, crate empty), real buttons and touches: (1) a chair in Pockets, A at the
+    crate shows Open the Crate / Move the Crate, Open, tap the chair: it goes into the crate; (2) a full crate
+    (capacity set to 1) refuses and the chair stays in Pockets; (3) take it out again, close, Move the Crate (the
+    crate goes into Pockets), put it down from Pockets, A shows its menu, save; (4) load that save from power-off:
+    the placed crate is back and no second crate is made at the old spot; (5) rent the Large Brownstone (Urbania
+    Park sign): the old crate, packed by the game with the furniture, is taken out of the new crate's list and the
+    new home has its crate. Shots: build/proofs/moving-crate-*.png."""
+    mod = os.path.join(KIT, 'mods', 'moving-crate')
+    rom, log = build('moving-crate', [mod])[:2]
+    base = int(re.search(r'code mod moving-crate: .* at ([0-9a-f]{8})', log).group(1), 16)
+    cnt = base + json.load(open(os.path.join(mod, 'code', 'build', 'patch.json')))['symbols']['moving_crate']
+    work = tempfile.mkdtemp(prefix='urbz-proof-')
+    load = json.load(open(os.path.join(KIT, 'verify', 'scripts', 'loadgame.json'))) + [['press', 'B', 6], ['wait', 60]]
+    chair = [['poke', '0x0214188C=880000000000'], ['poke', '0x02141338=01'], ['wait', 20]]
+    open_crate = [['hold', 'RIGHT'], ['wait', 70], ['release', 'RIGHT'], ['press', 'A', 6], ['wait', 60], ['shot', 'menu'],
+                  ['press', 'A', 6], ['wait', 400], ['shot', 'open']]
+    tap_pockets = [['touch', 29, 58, 4], ['wait', 4], ['touch', 29, 58, 4], ['wait', 60], ['shot', 'put-in']]
+
+    def go(tag, script, start, extra=()):
+        p = os.path.join(work, tag + '.json')
+        json.dump(script, open(p, 'w'))
+        out = run(VERIFY + ['ram', rom] + list(start) + ['--script', p, '--frames', '5'] + list(extra) +
+                  sum((['--read', r] for r in CRATE_READS + ['0x%08X:28' % cnt]), []), timeout=1500)
+        v = {l.split(' = ')[0].strip(): bytes.fromhex(l.split(' = ')[1].strip()) for l in out.splitlines() if ' = ' in l}
+        ev = out.strip().splitlines()[-1].split('evidence: ')[-1]
+        crate = [struct.unpack_from('<H', v['0x02141730:12'], 6 * i)[0] for i in range(min(2, v['0x02141328:2'][0]))]
+        pockets = [struct.unpack_from('<H', v['0x0214188C:12'], 6 * i)[0] for i in range(min(2, v['0x02141338:1'][0]))]
+        c = dict(zip(('moved', 'put_in', 'refused', 'spawned', 'kept_away', 'unpacked'),
+                     struct.unpack_from('<6I', v['0x%08X:28' % cnt], 4)))
+        return dict(crate=crate, pockets=pockets, area=struct.unpack('<I', v['0x02141FEC:4'])[0],
+                    lot=v['0x02141230:2'][0], c=c, ev=ev)
+
+    def keep(r, shot, name):
+        for f in glob.glob(os.path.join(r['ev'], '*_%s.png' % shot)):
+            shutil.copy(f, os.path.join(OUT, 'moving-crate-%s.png' % name))
+
+    sav = ['--sav', APARTMENT]
+    r1 = go('put-in', load + chair + open_crate + tap_pockets, sav)
+    keep(r1, 'menu', 'menu'), keep(r1, 'put-in', 'put-in')
+    full = [['poke', '0x02141730=880000000000'], ['poke', '0x02141328=0101']]
+    r2 = go('full', load + chair + full + open_crate + tap_pockets, sav)
+    moved_sav, state = os.path.join(work, 'moved.sav'), os.path.join(work, 'moved.dst')
+    move = [['touch', 148, 58, 4], ['wait', 4], ['touch', 148, 58, 4], ['wait', 60], ['shot', 'took-out'],
+            ['touch', 240, 76, 6], ['wait', 200], ['hold', 'LEFT'], ['wait', 15], ['release', 'LEFT'],
+            ['press', 'A', 6], ['wait', 60], ['press', 'DOWN', 6], ['wait', 20], ['press', 'A', 6], ['wait', 250],
+            ['shot', 'moved'], ['wait', 60], ['touch', 236, 166, 8], ['wait', 90], ['touch', 84, 75, 8], ['wait', 90],
+            ['touch', 164, 36, 8], ['wait', 30], ['touch', 164, 36, 8], ['wait', 90], ['touch', 236, 166, 8], ['wait', 60],
+            ['press', 'A', 6], ['wait', 200], ['shot', 'placed'], ['press', 'A', 6], ['wait', 60], ['shot', 'placed-menu'],
+            ['press', 'B', 6], ['wait', 60]]
+    move += json.load(open(os.path.join(KIT, 'verify', 'scripts', 'savegame.json')))
+    p = os.path.join(work, 'move.json')
+    json.dump(load + chair + open_crate + tap_pockets + move, open(p, 'w'))
+    out = run(VERIFY + ['play', rom] + sav + ['--script', p, '--save', state, '--export-sav', moved_sav], timeout=1500)
+    keep({'ev': out.strip().split('(screens in ')[-1].rstrip(')')}, 'moved', 'moved')
+    keep({'ev': out.strip().split('(screens in ')[-1].rstrip(')')}, 'placed-menu', 'placed')
+    r3 = go('move-read', [], ['--state', state])
+    r4 = go('reload', load + [['wait', 60], ['shot', 'reloaded']], ['--sav', moved_sav])
+    keep(r4, 'reloaded', 'reloaded')
+    rent = [['press', 'B', 6], ['wait', 30], ['press', 'DOWN', 20], ['wait', 10], ['press', 'A', 6], ['wait', 90],
+            ['press', 'A', 6], ['wait', 240], ['press', 'A', 6], ['wait', 320], ['press', 'B', 6], ['wait', 300],
+            ['shot', 'new-home']]
+    r5 = go('rent', rent, ['--state', state, '--goto', '19:1'])
+    keep(r5, 'new-home', 'new-home')
+    checks = [('put in', r1['crate'] == [136] and r1['pockets'] == [] and r1['c']['put_in'] == 1),
+              ('full refuses', r2['crate'] == [136] and r2['pockets'] == [136] and r2['c']['refused'] >= 1),
+              ('moved and placed', r3['c']['moved'] == 1 and r3['pockets'] == [136] and r3['crate'] == []),
+              ('reload: placed crate kept, none made', r4['c']['kept_away'] == 1 and r4['c']['spawned'] == 0
+               and 230 not in r4['pockets'] and r4['area'] == 22),
+              ('new home', r5['area'] == 23 and r5['lot'] == 2 and 230 not in r5['crate'] and r5['c']['unpacked'] >= 1
+               and r5['c']['spawned'] >= 2)]
+    bad = [n for n, ok in checks if not ok]
+    return not bad, ('put in: crate %s, Pockets %s; full: crate %s, Pockets %s; moved: Pockets %s, %s; reloaded: %s; '
+                     'new home (area %d, lot %d): crate list %s, %s%s; build/proofs/moving-crate-*.png') % (
+        r1['crate'], r1['pockets'], r2['crate'], r2['pockets'], r3['pockets'], r3['c'], r4['c'], r5['area'], r5['lot'],
+        r5['crate'], r5['c'], '; FAILED: %s' % ', '.join(bad) if bad else '')
+
+
 PROOFS = [('vanilla', p_vanilla), ('clock-speed', p_clock_speed), ('hooks-wrap-call', p_hooks_wrap_call),
           ('hooks-thumb', p_hooks_thumb), ('hooks-jump', p_hooks_jump), ('relayout', p_relayout),
           ('needs-decay', p_needs_decay), ('action-effect', p_action_effect), ('lz77', p_lz77_repack),
@@ -2864,7 +3656,7 @@ PROOFS = [('vanilla', p_vanilla), ('clock-speed', p_clock_speed), ('hooks-wrap-c
           ('pets-beds', p_pets_beds), ('pets-move', p_pets_move), ('pets-page', p_pets_page),
           ('strays-appear', p_strays_appear), ('strays-trust', p_strays_trust), ('pets-stall', p_pets_stall), ('pets-colours', p_pets_colours), ('pets-night', p_pets_night), ('pets-come-back', p_pets_come_back), ('pets-not-yours', p_pets_not_yours), ('pets-play', p_pets_play),
           ('melonds', p_melonds), ('pets-gate', p_pets_gate), ('pets-gate2', p_pets_gate2),
-          ('npc-seat-turns', p_npc_seat_turns), ('npc-look', p_npc_look), ('npc-poses', p_npc_poses), ('npc-pose-gallery', p_npc_pose_gallery), ('npc-new-seats', p_npc_new_seats), ('npc-testplay', p_npc_testplay), ('furniture-quality', p_furniture_quality), ('furniture-actions', p_furniture_actions), ('furniture-melonds', p_furniture_melonds), ('max-needs', p_max_needs), ('fix-stuck-leaving', p_fix_stuck_leaving), ('urbz-rom-only', p_urbz_rom_only), ('save-without-mod', p_save_without_mod), ('game-intact', p_game_intact)]
+          ('npc-seat-turns', p_npc_seat_turns), ('npc-look', p_npc_look), ('npc-poses', p_npc_poses), ('npc-pose-gallery', p_npc_pose_gallery), ('npc-new-seats', p_npc_new_seats), ('npc-testplay', p_npc_testplay), ('furniture-quality', p_furniture_quality), ('furniture-actions', p_furniture_actions), ('furniture-melonds', p_furniture_melonds), ('phone-screen', p_phone_screen), ('cellphone', p_cellphone), ('cellphone-alone', p_cellphone_alone), ('pay-phone', p_pay_phone), ('auto-interact', p_auto_interact),('max-needs', p_max_needs), ('fix-stuck-leaving', p_fix_stuck_leaving), ('urbz-rom-only', p_urbz_rom_only), ('save-without-mod', p_save_without_mod), ('game-intact', p_game_intact), ('walk-style', p_walk_style), ('friendly-topics', p_friendly_topics), ('better-chat', p_better_chat), ('better-chat-four', p_better_chat_four), ('quick-start', p_quick_start), ('moving-crate', p_moving_crate)]
 
 
 def main(argv):

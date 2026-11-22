@@ -4,6 +4,7 @@
   python urbz.py save info game.sav                   header, both slots, clock, money, needs
   python urbz.py save set game.sav out.sav [--slot 1|2] [--money N] [--motive NAME=0..100 ...]
                                            [--clock HH:MM]  (time of day; the day stays)
+                                           [--gender male|female]  (your Sim's body)
   python urbz.py save fix game.sav out.sav            recompute checksums (after editing by hand)
 
 Layout (see docs/systems.md):
@@ -20,6 +21,7 @@ HEADER, SLOT_SIZE = 0x20, 0xFE0
 SLOTS = (0x20, 0x1000)
 MOTIVES = ['hunger', 'hygiene', 'energy', 'social', 'comfort', 'bladder', 'fun', 'room']
 F_CLOCK, F_MONEY, F_MOTIVES = 0x05, 0x0B, 0x8E   # needs: u16, value * 256
+F_LOOK = 0x1E          # the player's look, 5 bytes; byte 0 bit 7 = gender (0 male, 1 female), docs/player-look.md
 
 
 def u16sum(b):
@@ -97,6 +99,7 @@ def info(path):
         used = len(bytes(buf[s:s + SLOT_SIZE - 2]).rstrip(b'\0'))
         print('slot %d: day %d %02d:%02d:%02d  money %d  (about %d of %d bytes used)'
               % (n + 1, day, h, m, sec, money, used, SLOT_SIZE))
+        print('        player: %s' % ('female' if buf[s + F_LOOK] & 0x80 else 'male'))
         print('        needs: ' + ', '.join('%s %.1f' % (k, v) for k, v in zip(MOTIVES, mot)))
         blk = mod_block(buf[s:s + SLOT_SIZE])
         if blk is not None:
@@ -154,6 +157,10 @@ def main(argv):
                 if not 0 <= val <= 100:
                     sys.exit('error: motive values are 0-100')
                 struct.pack_into('<H', buf, s + F_MOTIVES + 2 * MOTIVES.index(name), round(val * 256))
+            elif k == '--gender':
+                if v.lower() not in ('male', 'female'):
+                    sys.exit('error: --gender is male or female')
+                buf[s + F_LOOK] = (buf[s + F_LOOK] & 0x7F) | (0x80 if v.lower() == 'female' else 0)
             elif k == '--clock':
                 h, _, m = v.partition(':')
                 if not (0 <= int(h) < 24 and 0 <= int(m or 0) < 60):
