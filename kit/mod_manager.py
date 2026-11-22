@@ -12,8 +12,8 @@ Build runs urbz_build.py and shows its output; Play opens the built ROM in your 
 "Game folder" shows game/, which holds just the ROM, your save and a note on them.
 "Add mod..." installs a mod zip. "Settings..." picks your Urbz ROM (and unpacks it), your
 emulator and, optionally, your other Sims games (it writes emulator.txt and sources.json for
-you; the first time, it opens by itself). "Tune..." changes a mod's prices, shops, names and
-places without editing its files (kit/urbz_tuning.py).
+you; the first time, it opens by itself). "Tune..." changes a mod's prices, shops, names,
+places and settings without editing its files (kit/urbz_tuning.py).
 
 It uses the same files and rules as urbz_mod.py (mods.json lists the enabled mods), so the
 window and the command line always agree. Mods that can be switched in the game show
@@ -411,8 +411,8 @@ def settings_window(root, say, on_change, first_run=False):
 
 
 def tune_window(root, name, say):
-    """Change a mod's names, prices, descriptions, quality and shops, and NPC Life's places, without editing
-    its files: kept in tuning/<mod>.json (urbz_tuning.py) and used at the next build."""
+    """Change a mod's names, prices, descriptions, quality and shops, NPC Life's places and a mod's settings
+    (settings.json), without editing its files: kept in tuning/<mod>.json (urbz_tuning.py) and used at the next build."""
     import tkinter as tk
     from tkinter import ttk, messagebox
     import urbz_tuning as T
@@ -595,6 +595,41 @@ def tune_window(root, name, say):
         fill()
         return fill
 
+    def settings_tab():
+        own = json.load(open(os.path.join(md, 'settings.json'), encoding='utf-8'))
+        own_items = dict(T.entries(own, 'settings.json'))
+        tab = ttk.Frame(nb, padding=6)
+        nb.add(tab, text='Settings')
+        ttk.Label(tab, text='Pick how this mod works. Used at the next build.', padding=(0, 0, 0, 6)).pack(fill='x')
+        rows = []
+        for key, s in own_items.items():
+            row = ttk.Frame(tab, padding=(0, 4))
+            row.pack(fill='x')
+            ttk.Label(row, text=s.get('label', key)).pack(anchor='w')
+            texts = {c: ch.get('text', c) for c, ch in s.get('choices', {}).items()}
+            var = tk.StringVar()
+            box = ttk.Combobox(row, textvariable=var, values=list(texts.values()), state='readonly', width=70)
+            box.pack(side='left')
+            mark = ttk.Label(row, width=2)
+            mark.pack(side='left', padx=4)
+
+            def pick(_ev=None, key=key, texts=texts, var=var):
+                choice = next(c for c, tx in texts.items() if tx == var.get())
+                T.set_value(name, 'settings.json', key, 'value', choice, own_items[key].get('value'))
+                fill()
+                say('%s: %s = %s (used at the next build)' % (name, key, choice))
+            box.bind('<<ComboboxSelected>>', pick)
+            rows.append((key, texts, var, mark))
+
+        def fill():
+            now = dict(T.entries(T.apply(name, 'settings.json', own), 'settings.json'))
+            changed = T.overrides(name).get('settings.json', {})
+            for key, texts, var, mark in rows:
+                var.set(texts.get(now[key].get('value'), ''))
+                mark.configure(text='*' if changed.get(key) else '')
+        fill()
+        return fill
+
     fills = []
     files = tunable_files(name)
     if 'pets.json' in files:
@@ -603,6 +638,8 @@ def tune_window(root, name, say):
         fills.append(items_tab('objects.json', 'Things to buy'))
     if 'places.json' in files:
         fills.append(places_tab())
+    if 'settings.json' in files:
+        fills.append(settings_tab())
     bottom = ttk.Frame(win, padding=(10, 0, 10, 10))
     bottom.pack(fill='x')
 

@@ -658,6 +658,19 @@ def p_fix_stuck_leaving():
 TRASH_PICKED, AREA_NOW, URBANIA_PARK = 0x02141B48, 0x02141FEC, 19
 
 
+def bug_fixes_set(trash):
+    """A copy of mods/bug-fixes with its "trash" setting (settings.json) set; the build writes it into the code.
+    Named apart from bug-fixes, so your own tuning of the mod doesn't apply."""
+    mod = os.path.join(OUT, 'mods', 'bug-fixes-' + trash)
+    shutil.rmtree(mod, ignore_errors=True)
+    shutil.copytree(os.path.join(KIT, 'mods', 'bug-fixes'), mod)
+    sp = os.path.join(mod, 'settings.json')
+    s = json.load(open(sp, encoding='utf-8'))
+    s['settings']['trash']['value'] = trash
+    json.dump(s, open(sp, 'w', encoding='utf-8'))
+    return mod
+
+
 def trash_in_park(rom, goal_done=False):
     """Urbania Park from urbania.sav with trash_picked poked to 101 and every collectible slot marked as rolled and
     spawned today (game_state+0xA18..0xA27), so chance plays no part. After 1 s the park is loaded again through the
@@ -682,13 +695,14 @@ def trash_in_park(rom, goal_done=False):
 
 
 def p_fix_trash():
-    """Bug Fixes, trash that stops coming back (mods/bug-fixes, docs/systems.md "Collectibles and the trash bug"):
+    """Bug Fixes, trash that stops coming back, setting "keep-coming" (mods/bug-fixes, docs/systems.md "Collectibles
+    and the trash bug"):
     every pile of trash picked up adds 1 to trash_picked (saved), and over 100 the game never makes trash again, but
     the Artsies' "Recycle 100 piles of trash" only counts trash sold after they give you the challenge. Urbania Park
     has 7 trash records and 3 others (cans, a licence plate). With trash_picked at 101 and every slot due today, the
     original ROM makes no trash after a reload; with Bug Fixes the count goes back to 100 and all 7 piles are there.
     With the Artsies' trash goal done, Bug Fixes leaves the count alone (the original game from then on)."""
-    rom = build('fix-trash', [os.path.join(KIT, 'mods', 'bug-fixes')])[0]
+    rom = build('fix-trash', [bug_fixes_set('keep-coming')])[0]
     o_picked, o_area, o_kinds = trash_in_park(os.path.join(PROJ, 'base.nds'))
     f_picked, f_area, f_kinds = trash_in_park(rom)
     d_picked = trash_in_park(rom, goal_done=True)[0]
@@ -699,6 +713,67 @@ def p_fix_trash():
                 '(area %d); with Bug Fixes: count %d, collectibles %s (area %d); goal done: count stays %d') % (
         o_picked, dict(sorted(o_kinds.items())), o_area, f_picked, dict(sorted(f_kinds.items())), f_area, d_picked)
 
+
+
+ARTSIE_SOLD, TRASH_HELD, TRASH_SHOWN, TRASH_DONE = 0x0214126A, 0x0214125C, 0x02141AC6, 0x02141AC7
+
+
+def trash_goal(rom, picked, held):
+    """From urbania.sav with the Artsies' trash sub-goal (5,2,2) shown and not done, trash_picked = picked and
+    `held` piles in Pockets: (goal's count, sub-goal done, trash_picked) after 2 s."""
+    pokes = ['0x%08X=%02x' % (TRASH_PICKED, picked), '0x%08X=%02x' % (TRASH_HELD, held),
+             '0x%08X=00' % ARTSIE_SOLD, '0x%08X=0100' % TRASH_SHOWN]
+    r = ram(rom, 60, '0x%08X:1' % ARTSIE_SOLD, '0x%08X:1' % TRASH_DONE, '0x%08X:1' % TRASH_PICKED,
+            pokes=pokes, start=['--from', 'urbania'])
+    return r['0x%08X:1' % ARTSIE_SOLD][0], r['0x%08X:1' % TRASH_DONE][0], r['0x%08X:1' % TRASH_PICKED][0]
+
+
+def p_fix_trash_sold():
+    """Bug Fixes' trash fix as shipped (settings.json "trash": "count-sold"; the other choice is proof fix-trash):
+    the Artsies' "Recycle 100 piles of trash" also counts trash sold before they asked, worked out from what the
+    game saves (piles ever picked up minus piles held). Challenge given, 101 picked up and none held: the original
+    ROM leaves the goal at 0; with the setting the goal is done. 101 picked up, 30 held: the goal's count is 71,
+    not done, and trash_picked is left as it is (this setting doesn't keep trash coming)."""
+    rom = build('fix-trash-sold', [bug_fixes_set('count-sold')])[0]
+    orig = trash_goal(os.path.join(PROJ, 'base.nds'), 101, 0)
+    done = trash_goal(rom, 101, 0)
+    part = trash_goal(rom, 101, 30)
+    ok = orig == (0, 0, 101) and done[1] == 1 and done[0] >= 100 and part == (71, 0, 101)
+    return ok, ('challenge given, 101 piles picked up. Original ROM, none held: count %d, done %d; count-sold, '
+                'none held: count %d, done %d; 30 held: count %d, done %d, trash_picked %d') % (
+        orig[0], orig[1], done[0], done[1], part[0], part[1], part[2])
+
+
+GOALS_ARTSIES = [['wait', 30], ['touch', 186, 166], ['wait', 40],   # bottom bar: Goals
+                 ['touch', 192, 110], ['wait', 40],                 # Rep Mission (mission 5: the groups)
+                 ['touch', 96, 40], ['wait', 40]]                   # the third goal: Artsies
+
+
+def artsie_goal_line(rom, count):
+    """The Goals screen at the Artsies' goal (urbania.sav, the trash sub-goal shown, the goal's count poked),
+    opened with taps. Returns the RAM after it (code region + the start of the heap)."""
+    fd, script = tempfile.mkstemp(suffix='.json')
+    with os.fdopen(fd, 'w') as f:
+        json.dump(GOALS_ARTSIES, f)
+    try:
+        return ram(rom, 5, HEAP_SCAN, pokes=['0x02141AC0=0100010001000100', '0x%08X=%02x' % (ARTSIE_SOLD, count)],
+                   script=script, start=['--from', 'urbania'])[HEAP_SCAN]
+    finally:
+        os.remove(script)
+
+
+def p_fix_trash_goal():
+    """Bug Fixes shows the Artsies' trash count on the Goals screen (hook goals_line_text, the BL text_get of a
+    sub-goal line): opened with taps (Goals, Rep Mission, the Artsies), the count at 42, the line is "Clean up the
+    city! Recycle 100 piles of trash (42)"; the original ROM has no count. At 100 the number goes."""
+    rom = build('fix-trash-goal', [os.path.join(KIT, 'mods', 'bug-fixes')])[0]
+    want = b'Clean up the city! Recycle 100 piles of trash (42)\0'
+    orig = artsie_goal_line(os.path.join(PROJ, 'base.nds'), 42)
+    mod = artsie_goal_line(rom, 42)
+    full = artsie_goal_line(rom, 100)
+    ok = want not in orig and want in mod and b'trash (100)' not in full
+    return ok, 'line with the count 42: original ROM %s, with Bug Fixes %s; at 100 a number shown: %s' % (
+        want in orig, want in mod, b'trash (100)' in full)
 
 PHOEBE = 54
 
@@ -2909,7 +2984,7 @@ PROOFS = [('vanilla', p_vanilla), ('clock-speed', p_clock_speed), ('hooks-wrap-c
           ('pets-beds', p_pets_beds), ('pets-move', p_pets_move), ('pets-page', p_pets_page),
           ('strays-appear', p_strays_appear), ('strays-trust', p_strays_trust), ('pets-stall', p_pets_stall), ('pets-colours', p_pets_colours), ('pets-night', p_pets_night), ('pets-come-back', p_pets_come_back), ('pets-not-yours', p_pets_not_yours), ('pets-play', p_pets_play),
           ('melonds', p_melonds), ('pets-gate', p_pets_gate), ('pets-gate2', p_pets_gate2),
-          ('npc-seat-turns', p_npc_seat_turns), ('npc-look', p_npc_look), ('npc-poses', p_npc_poses), ('npc-pose-gallery', p_npc_pose_gallery), ('npc-new-seats', p_npc_new_seats), ('npc-testplay', p_npc_testplay), ('furniture-quality', p_furniture_quality), ('furniture-actions', p_furniture_actions), ('furniture-melonds', p_furniture_melonds), ('max-needs', p_max_needs), ('fix-stuck-leaving', p_fix_stuck_leaving), ('fix-trash', p_fix_trash), ('urbz-rom-only', p_urbz_rom_only), ('save-without-mod', p_save_without_mod), ('game-intact', p_game_intact)]
+          ('npc-seat-turns', p_npc_seat_turns), ('npc-look', p_npc_look), ('npc-poses', p_npc_poses), ('npc-pose-gallery', p_npc_pose_gallery), ('npc-new-seats', p_npc_new_seats), ('npc-testplay', p_npc_testplay), ('furniture-quality', p_furniture_quality), ('furniture-actions', p_furniture_actions), ('furniture-melonds', p_furniture_melonds), ('max-needs', p_max_needs), ('fix-stuck-leaving', p_fix_stuck_leaving), ('fix-trash', p_fix_trash), ('fix-trash-sold', p_fix_trash_sold), ('fix-trash-goal', p_fix_trash_goal), ('urbz-rom-only', p_urbz_rom_only), ('save-without-mod', p_save_without_mod), ('game-intact', p_game_intact)]
 
 
 def main(argv):

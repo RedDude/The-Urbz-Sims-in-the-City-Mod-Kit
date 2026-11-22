@@ -251,7 +251,7 @@ Rendering verified pixel-identical to the emulator (EA logo, asset 10747).
 - Object upgrades: table 0x020C25BC, [category][4 levels] x 12 bytes (s16 price first);
   `buy_upgrade` (0x02018DAC) pays the price and refunds half the old level's.
 
-## Collectibles and the trash bug (2026-11-22, Ghidra 12.2 decompile; proof `fix-trash`)
+## Collectibles and the trash bug (2026-11-22, Ghidra 12.2 decompile; proofs `fix-trash`, `fix-trash-sold`)
 
 - Five collectibles lie around the streets: 0 Pile of Trash, 1 Aluminum Cans, 2 License Plate, 3 Nuclear Fuel Rods,
   4 Three-Eyed Bog Frog (name string 210 + kind, description 215 + kind). You hold them in Pockets > Collectibles
@@ -272,10 +272,24 @@ Rendering verified pixel-identical to the emulator (EA logo, asset 10747).
   day 30 or 100; nothing in the code looks at the day (time_update's day 30/50/75/100 checks only show
   messages). Seen: with `trash_picked` = 101 and every slot due today, Urbania Park reloads with the cans and
   the plate but none of its 7 piles.
-- **The fix** (Bug Fixes mod): until that sub-goal is done, `trash_picked` is held at 100, so trash keeps coming;
-  after it, the game behaves as the original. Seen: same test, the count goes back to 100 and all 7 piles are
-  there; with the sub-goal marked done, the count stays at 101. A save that already has the bug gets its trash
-  back the next time you enter a place.
+- **The fix** (Bug Fixes mod), two ways, picked with its setting `trash` (`settings.json`, Tune window; the build
+  writes it into `tune_trash`):
+  - `keep-coming`: until that sub-goal is done, `trash_picked` is held at 100, so trash keeps coming;
+    after it, the game behaves as the original. Seen: same test, the count goes back to 100 and all 7 piles are
+    there; with the sub-goal marked done, the count stays at 101. A save that already has the bug gets its trash
+    back the next time you enter a place.
+  - `count-sold` (default): while the sub-goal is shown and not done, `artsie_trash_sold` is raised to `trash_picked` minus
+    trash held (the game keeps no count of sales, so trash that left Pockets any other way counts too); at 100
+    the mod calls `subgoal_set_done(5, 2, 2)`, as a sale would. Trash still stops after 101 piles. Seen (proof
+    `fix-trash-sold`, sub-goal poked as shown): 101 picked up, none held: the original ROM leaves the count at 0;
+    with the setting it is 101 and the sub-goal done. 30 held: count 71, not done, `trash_picked` untouched.
+    Not seen: what the game shows when the sub-goal is done this way (no save with the real challenge).
+  - Either way, the **Goals screen shows the count**: `goals_draw` (0x02036708, (m, g)) draws sub-goal s's line
+    from `text_get(title string + s + 1)` (title strings u32[7][6] at 0x020C6004; the Artsies: 4089, so the trash
+    line is 4092) at the BL `goals_line_text` (0x02036860); the mod's hook answers 4092 with the game's count
+    added while the sub-goal is shown, not done and under 100: "Clean up the city! Recycle 100 piles of trash
+    (42)" (it fits the panel; "(42/100)" was cut off at the edge). Seen (proof `fix-trash-goal`): bottom bar Goals (186,166), **Rep
+    Mission** (192,110) is mission 5 (the groups; the S button is mission 6), the third goal (96,40) = Artsies.
 - Not tested in play: picking up and selling real piles, and the Artsies' challenge itself (no save that far).
 
 ## Save file

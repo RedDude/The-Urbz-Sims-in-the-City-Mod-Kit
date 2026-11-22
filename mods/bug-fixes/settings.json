@@ -1,0 +1,13 @@
+{
+ "settings": {
+  "trash": {
+   "label": "Trash piles (the Artsies' \"Recycle 100 piles of trash\")",
+   "symbol": "tune_trash",
+   "value": "count-sold",
+   "choices": {
+    "count-sold": {"number": 1, "text": "The goal also counts trash you sold before the Artsies asked"},
+    "keep-coming": {"number": 0, "text": "Trash keeps appearing until you finish the goal"}
+   }
+  }
+ }
+}

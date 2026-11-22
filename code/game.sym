@@ -145,12 +145,15 @@ schedule_table_ptr_3 = 0x02065AA0
 schedule_table_ptr_4 = 0x0206610C
 schedule_table_ptr_5 = 0x02066700
 
-# --- goals (quests): 7 missions x 6 goals x 12 bytes; m = mission 0-6 (Goals menu 1-5, S, R), g = goal 0-5
+# --- goals (quests): 7 missions x 6 goals x 12 bytes; m = mission 0-6 (Goals menu 1-5; 5 = Rep Mission: the
+#     groups Streeties, Nerdies, Artsies, Richies; 6 = S; seen in the emulator), g = goal 0-5
 goal_table         = 0x02141940   # +0 u8 active, +1 u8 complete (set when you report back), +2+2s u8 sub-goal s shown, +3+2s u8 sub-goal s done
 goal_active        = 0x02054334   # u8 goal_active(m, g)
 goal_complete      = 0x020542F4   # u8 goal_complete(m, g)
 subgoal_done       = 0x02054314   # u8 subgoal_done(m, g, s)
 subgoal_shown      = 0x02054354   # u8 subgoal_shown(m, g, s)
+goals_draw         = 0x02036708   # (m, g): the Goals screen's text for one goal; sub-goal s line = text_get(title string + s + 1)
+goals_line_text    = 0x02036860   # BL text_get(sub-goal line) in goals_draw
 relationship_base  = 0x02141134   # social table: relationships = base + 0x20
 add_relationship   = 0x0207B074   # int add_relationship(base, char_id, delta): clamps -100..100, sets friend flags at 50
 

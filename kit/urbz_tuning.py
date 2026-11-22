@@ -7,9 +7,12 @@ deletes them. What can be tuned:
   pets.json     each pet's name, price, description, and which shops sell it (and how often)
   objects.json  each object's name, price, description, quality (1-5, how fast it fills needs), shops
   places.json   NPC Life: what each place offers the townspeople (food, fun, social, park, gym)
+  settings.json a mod's options: each setting picks one of its choices (e.g. Bug Fixes' trash fix)
 
   python urbz.py tuning show [mod]      what you've changed
   python urbz.py tuning reset mod       back to the mod's own settings
+  python urbz.py tuning set mod setting choice    pick a setting (settings.json), e.g.
+                                        python urbz.py tuning set bug-fixes trash count-sold
 """
 import copy
 import json
@@ -31,6 +34,7 @@ FILES = {
     'pets.json': ('pets', 'name', ('name', 'price', 'description', 'sell')),
     'objects.json': ('objects', 'id', ('name', 'price', 'description', 'sell', 'quality')),
     'places.json': ('places', None, ('kinds',)),
+    'settings.json': ('settings', None, ('value',)),
 }
 
 
@@ -106,6 +110,10 @@ def check(fname, field, value):
         if not isinstance(value, (list, tuple)) or any(k not in KINDS for k in value):
             raise TuningError('a place offers some of: ' + ', '.join(KINDS))
         value = [k for k in KINDS if k in value]
+    elif field == 'value':
+        value = str(value).strip()
+        if not 1 <= len(value) <= 40:
+            raise TuningError('a setting is the name of one of its choices')
     return value
 
 
@@ -145,14 +153,17 @@ def apply(mod, fname, data):
         for field, value in tuned.get(key, {}).items():
             if field in allowed:
                 try:
-                    ent[field] = check(fname, field, value)
+                    value = check(fname, field, value)
                 except TuningError:
-                    pass                                  # a hand-edited bad value: keep the mod's own
+                    continue                              # a hand-edited bad value: keep the mod's own
+                if fname == 'settings.json' and value not in ent.get('choices', {}):
+                    continue                              # a choice the mod no longer has
+                ent[field] = value
     return data
 
 
 def load(mod_dir, fname):
-    """Read a mod's pets.json / objects.json / places.json with your tuning applied."""
+    """Read a mod's pets.json / objects.json / places.json / settings.json with your tuning applied."""
     mod = os.path.basename(os.path.normpath(mod_dir))
     data = json.load(open(os.path.join(mod_dir, fname), encoding='utf-8'))
     return apply(mod, fname, data)
@@ -180,7 +191,8 @@ def places_table(places):
 
 def patch_blob(mod_dir, blob, symbols):
     """A code mod's compiled blob with its data tables rewritten from its (tuned) files, so changes need no
-    compiler. Today: NPC Life's places (symbol sim_places, from places.json)."""
+    compiler. Today: NPC Life's places (symbol sim_places, from places.json) and settings.json: each setting's
+    chosen "number" (0-255) is written to the byte at its "symbol" (a const volatile u8 in the mod's C)."""
     if 'sim_places' in symbols and os.path.exists(os.path.join(mod_dir, 'places.json')):
         table = places_table(load(mod_dir, 'places.json')['places'])
         off = symbols['sim_places']
@@ -188,6 +200,20 @@ def patch_blob(mod_dir, blob, symbols):
         if off + len(table) > len(blob):
             raise TuningError('%s: sim_places is not the size the kit expects (rebuild the mod\'s code)' % mod_dir)
         blob[off:off + len(table)] = table
+        blob = bytes(blob)
+    if os.path.exists(os.path.join(mod_dir, 'settings.json')):
+        blob = bytearray(blob)
+        for key, s in entries(load(mod_dir, 'settings.json'), 'settings.json'):
+            sym, choice = s.get('symbol'), s.get('choices', {}).get(s.get('value'))
+            if not sym or choice is None:
+                raise TuningError('%s: settings.json "%s" needs a symbol and a value from its choices' % (mod_dir, key))
+            if sym not in symbols or symbols[sym] >= len(blob):
+                raise TuningError('%s: setting "%s": %s is not in the compiled code (a const volatile u8; rebuild '
+                                  'the code)' % (mod_dir, key, sym))
+            n = int(choice['number'])
+            if not 0 <= n <= 255:
+                raise TuningError('%s: setting "%s": numbers are 0-255' % (mod_dir, key))
+            blob[symbols[sym]] = n
         blob = bytes(blob)
     return blob
 
@@ -201,6 +227,19 @@ def main(argv):
             if os.path.isdir(TUNING) else argv[1:]
         for m in mods:
             print('%s: %s' % (m, json.dumps(overrides(m), ensure_ascii=False) if overrides(m) else 'nothing changed'))
+    elif argv[0] == 'set' and len(argv) == 4:
+        mod, key, choice = argv[1:]
+        try:
+            own = json.load(open(os.path.join(KIT, 'mods', mod, 'settings.json'), encoding='utf-8'))
+        except OSError:
+            sys.exit('%s has no settings' % mod)
+        s = dict(entries(own, 'settings.json')).get(key)
+        if s is None:
+            sys.exit('%s settings: %s' % (mod, ', '.join(k for k, _ in entries(own, 'settings.json'))))
+        if choice not in s.get('choices', {}):
+            sys.exit('%s: choose one of %s' % (key, ', '.join(s.get('choices', {}))))
+        set_value(mod, 'settings.json', key, 'value', choice, s.get('value'))
+        print('%s %s: %s (used at the next build)' % (mod, key, choice))
     elif argv[0] == 'reset' and len(argv) == 2:
         reset(argv[1])
         print('%s: back to its own settings' % argv[1])

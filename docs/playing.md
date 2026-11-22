@@ -91,8 +91,10 @@ Nap, Daydream, Read in Bed. List: [`mods/more-furniture/README.md`](../mods/more
 
 ### Bug Fixes (`mods\bug-fixes`)
 
-Fixes bugs in the original game; it works with or without the other mods. So far: piles of trash keep appearing
-until you finish the Artsies' "Recycle 100 piles of trash"; someone the game sends out of a place no longer paces
+Fixes bugs in the original game; it works with or without the other mods. So far: the Artsies' "Recycle 100
+piles of trash" also counts trash you sold before they asked (or, picked in Tune... > Settings, trash keeps
+appearing until you finish it), and the Goals screen shows how many you've recycled; someone the game sends
+out of a place no longer paces
 by the door or lift for hours when you're standing near it. The list, and how to add a
 fix: [`mods/bug-fixes/README.md`](../mods/bug-fixes/README.md). Switch it off (Options > Mods > Bug Fixes) to see
 the original behaviour.
