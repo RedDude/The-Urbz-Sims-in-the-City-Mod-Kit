@@ -1,1 +1,2 @@
-# Bug Fixes uses only the tick event (no hooks).
+# Bug Fixes: the fixes run from the tick event (main.c); one hook shows the Artsies' trash count on the Goals screen.
+call goals_line_text goal_line_text  # goals screen, a sub-goal line: BL text_get(goal title string + s + 1)

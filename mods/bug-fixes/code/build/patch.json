@@ -1,20 +1,25 @@
 {
  "relocs": [
   32,
-  436,
-  444,
-  448
+  344,
+  916,
+  920,
+  940,
+  944
  ],
  "symbols": {
-  "bug_fixes": 460,
-  "leave_seen": 668,
-  "leave_since": 472,
+  "bug_fixes": 960,
+  "goal_line_text": 36,
+  "leave_seen": 1336,
+  "leave_since": 980,
   "mod_on_area_enter": 0,
-  "mod_on_tick": 36
+  "mod_on_tick": 352,
+  "trash_line": 1176,
+  "tune_trash": 956
  },
- "bss": 392,
+ "bss": 552,
  "sources": {
-  "main.c": "d8e644b97fa1491eb925c7b4bb80391bb82267da",
-  "hooks.txt": "16f413f1b569d49857283db3637c42ad34c09524"
+  "main.c": "bf1289f4c7e9d325d5d40298e408014859ebb464",
+  "hooks.txt": "c5f3f5143bf4d3b5bbaa3503296db4c9f8433e66"
  }
 }

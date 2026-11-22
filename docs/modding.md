@@ -275,7 +275,8 @@ the catalog colours) and `icon.png` (32x32, for Pockets and the Catalog) with `i
 The mod manager's **Tune...** lets players change some of a mod's settings without editing its files:
 - `pets.json`: a pet's name, price, description, and which shops sell it (common / uncommon / rare);
 - `objects.json`: the same for objects, plus quality (1-5);
-- `places.json` (NPC Life): what each place offers.
+- `places.json` (NPC Life): what each place offers;
+- `settings.json`: a mod's options, each a choice from a list (Bug Fixes: how the trash fix works).
 
 Their changes go in `tuning\<mod>.json` (never committed) and the builder applies them over the mod's own
 files when it reads them (`kit/urbz_tuning.py`; `python urbz.py tuning show` lists them). Data compiled into a
@@ -283,6 +284,24 @@ mod's C code can be tuned too when the kit knows its layout: NPC Life's places t
 80 rows) is rewritten in the compiled code at build time, so nobody needs a compiler. The named shops are
 the furniture shop (list 4), the Bayou Bazaar (9), the Second Looks Thrift Emporium (10) and Drifter Woods'
 stall (18).
+
+To give your C mod an option, add a `settings.json` and a byte for it in the code:
+
+```json
+{"settings": {"trash": {"label": "Trash piles", "symbol": "tune_trash", "value": "count-sold",
+  "choices": {"keep-coming": {"number": 0, "text": "Trash keeps appearing until you finish the goal"},
+              "count-sold":  {"number": 1, "text": "The goal also counts trash you sold before"}}}}}
+```
+
+```c
+const volatile u8 tune_trash = 1;   /* the build writes the chosen choice's "number" here */
+```
+
+`value` is the mod's own choice. At build time the chosen `number` (0-255) is written into the compiled code at
+`symbol`, so a player's choice needs no compiler. Keep the byte `const volatile` and not `static`: `const` puts it
+in the compiled data (a plain `= 0` would land in the zeroed part, which isn't in the file), `volatile` stops the
+compiler from using the 0 directly. The Tune window shows a Settings tab with one list per setting; from the
+command line: `python urbz.py tuning set bug-fixes trash count-sold`.
 
 ## The kit's own models
 

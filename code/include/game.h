@@ -93,3 +93,11 @@ typedef struct {                 /* save_ctx: the slot stream being written or r
 #define spawn_critter GAME_FN(ADDR_spawn_critter, void *(*)(unsigned kind, unsigned facing, unsigned a, int x, int y))
 /* Entity state (+0x104) and action (+0x105). */
 #define entity_set_state  GAME_FN(ADDR_entity_set_state, void (*)(void *e, int state))
+
+/* ---- collectibles (docs/systems.md "Collectibles and the trash bug") ------ */
+/* Kinds: 0 Pile of Trash, 1 Aluminum Cans, 2 License Plate, 3 Nuclear Fuel Rods, 4 Three-Eyed Bog Frog. */
+#define collectible_count ((volatile u8 *)ADDR_collectible_count)   /* [kind]: how many you hold */
+#define trash_picked      GAME_VAR(ADDR_trash_picked, u8)          /* piles ever picked up; > 100: no more trash */
+#define artsie_trash_sold GAME_VAR(ADDR_artsie_trash_sold, u8)     /* the Artsie goal's count (done at 100) */
+/* Goal table: m mission 0-6, g goal 0-5; sub-goal s shown = [2 + 2s], done = [3 + 2s]. */
+#define goal_row(m, g)    ((volatile u8 *)ADDR_goal_table + (m) * 0x48 + (g) * 12)

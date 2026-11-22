@@ -24,7 +24,7 @@ Urbz DX is made of mods you can pick from. These are ticked by default:
 | **NPC Life** | The 36 townspeople follow daily routines: they eat, sit, wash, sleep, chat with each other and wander the city's cafés, clubs and parks in their free time, where you can see them. Everyone gets the animations they need. |
 | **Pets** | Eight pets (Puppy, Kitten, Bunny, Hamster, Guinea Pig, Cockatoo, Macaw, Snake) with beds and cages. Win over a stray in Urbania Park, buy more at the Farmer's Market, feed, pet and play with them; they're saved and move house with you. |
 | **More Furniture** | 13 new pieces (armchairs, sofas, beds, tables...), some with new actions (Read a Book, Nap, Daydream). |
-| **Bug Fixes** | Fixes bugs in the original game, e.g. townspeople left pacing by a door or lift for hours when you stand near it. [List](mods/bug-fixes/README.md). |
+| **Bug Fixes** | Fixes bugs in the original game, e.g. piles of trash that stop appearing for good, so the Artsies' "Recycle 100 piles of trash" can't be finished (now trash you sold earlier counts), and townspeople left pacing by a door or lift for hours when you stand near it. [List](mods/bug-fixes/README.md). |
 | **Max Needs** | A testing aid, off until you switch it on in the game: your needs stay full while it's on. |
 
 More mods, not ticked on a fresh kit: tick the ones you want in the mod manager.
