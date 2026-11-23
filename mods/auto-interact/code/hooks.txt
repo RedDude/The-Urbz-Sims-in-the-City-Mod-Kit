@@ -1,0 +1,3 @@
+# Auto Interact: the object menu's one call that opens its question box goes to ours
+# (docs/systems.md "The player using an object").
+call object_menu_open_call auto_interact_open

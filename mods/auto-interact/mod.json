@@ -1,0 +1,9 @@
+{
+  "name": "auto-interact",
+  "title": "Auto Interact",
+  "version": "0.1",
+  "author": "Urbz DX",
+  "description": "When an object has only one thing to do, press A and your Sim does it straight away: no question box. Objects with two or more choices still ask. Switch it off in the game: Options > Mods > Auto Interact.",
+  "toggle": true,
+  "default": true
+}
