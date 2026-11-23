@@ -31,8 +31,8 @@ More mods, not ticked on a fresh kit: tick the ones you want in the mod manager.
 
 | Mod | What it does |
 |---|---|
-| **Phone** | Call Friend and Invite a Friend Over open a touch screen that looks like Pockets, with a face for each person you know (14 a page). Away from home it skips the one-choice question. |
-| **Cellphone** | A Cellphone button in Urb Info: use the phone from anywhere, with the same choices as a phone. Needs Phone. [More](mods/cellphone/README.md). |
+| **Phone** | Call Friend and Invite a Friend Over open a touch screen that looks like Pockets, with a face for each person you know (14 a page). |
+| **Cellphone** | A Cellphone button in Urb Info: use the phone from anywhere, with the same choices as a phone. [More](mods/cellphone/README.md). |
 | **Any Romance** | Flirt and Kiss can come up with anyone, whatever your Sim's sex and theirs. |
 | **Friendly Topics** | Every chat shows at least one topic the person likes, so you don't have to keep tapping FRIENDLY STUFF. [More](mods/friendly-topics/README.md). |
 | **Moving Crate** | The moving crate stays in your home for good: store things from Pockets in it and move it around. [More](mods/moving-crate/README.md). |
